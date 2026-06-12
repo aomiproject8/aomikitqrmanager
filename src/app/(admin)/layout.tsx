@@ -5,9 +5,11 @@ import LogoutButton from "@/components/auth/logout-button"
 const navItems = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/products", label: "Products" },
+  { href: "/admin/diagnoses", label: "Diagnoses" },
+  { href: "/admin/routine-types", label: "Routine Types" },
   { href: "/admin/routines", label: "Routines" },
-  { href: "/admin/qr-batches", label: "QR Batches" },
-  { href: "/admin/sellers", label: "Sellers" },
+  { href: "/admin/qr-tokens", label: "QR Tokens" },
+  { href: "/admin/batches", label: "Batches" },
 ]
 
 export default async function AdminLayout({
