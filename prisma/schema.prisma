@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,310 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  SELLER
+}
+
+enum QRTokenStatus {
+  AVAILABLE
+  ASSIGNED
+  ACTIVATED
+  VOIDED
+  REPLACED
+}
+
+enum PackageStatus {
+  ASSIGNED
+  ACTIVATED
+  VOIDED
+  REPLACED
+}
+
+enum ImageType {
+  FRONT
+  SECONDARY
+  REFERENCE
+}
+
+enum BatchSource {
+  GENERATED
+  IMPORTED
+}
+
+enum StepType {
+  CLEANSER
+  TONER
+  SERUM
+  CREAM
+  SUNSCREEN
+  EXFOLIANT
+  TREATMENT
+  MOISTURIZER
+}
+
+// ─── Users ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(SELLER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ─── Products ────────────────────────────────────────────────────────────────
+
+model Product {
+  id                  String   @id @default(cuid())
+  sku                 String?  @unique
+  name                String
+  category            String?
+  functionDescription String?
+  stepType            StepType
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  images             ProductImage[]
+  replacementSources ProductReplacement[]  @relation("source")
+  replacementTargets ProductReplacement[]  @relation("replacement")
+  defaultSteps       RoutineTemplateStep[]
+
+  @@index([stepType, active])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String    @id @default(cuid())
+  productId String
+  imageUrl  String
+  imageType ImageType @default(REFERENCE)
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ─── Diagnoses ───────────────────────────────────────────────────────────────
+
+model Diagnosis {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  routines RoutineTemplateDiagnosis[]
+
+  @@map("diagnoses")
+}
+
+// ─── Routine Types ───────────────────────────────────────────────────────────
+
+model RoutineType {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  templates RoutineTemplate[]
+
+  @@map("routine_types")
+}
+
+// ─── Routine Templates ───────────────────────────────────────────────────────
+
+model RoutineTemplate {
+  id                  String   @id @default(cuid())
+  name                String
+  description         String?
+  durationDays        Int?
+  routineTypeId       String
+  generalInstructions String?
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  routineType RoutineType                @relation(fields: [routineTypeId], references: [id])
+  diagnoses   RoutineTemplateDiagnosis[]
+  steps       RoutineTemplateStep[]
+  packages    Package[]
+
+  @@index([routineTypeId, active])
+  @@map("routine_templates")
+}
+
+// M:N join: routine templates ↔ diagnoses
+model RoutineTemplateDiagnosis {
+  routineTemplateId String
+  diagnosisId       String
+
+  template  RoutineTemplate @relation(fields: [routineTemplateId], references: [id], onDelete: Cascade)
+  diagnosis Diagnosis       @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
+
+  @@id([routineTemplateId, diagnosisId])
+  @@index([diagnosisId])
+  @@map("routine_template_diagnoses")
+}
+
+model RoutineTemplateStep {
+  id                String   @id @default(cuid())
+  routineTemplateId String
+  stepNumber        Int
+  stepType          StepType
+  defaultProductId  String?
+  instruction       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  template       RoutineTemplate @relation(fields: [routineTemplateId], references: [id], onDelete: Cascade)
+  defaultProduct Product?        @relation(fields: [defaultProductId], references: [id])
+
+  @@unique([routineTemplateId, stepNumber])
+  @@map("routine_template_steps")
+}
+
+// ─── Product Replacements ────────────────────────────────────────────────────
+
+model ProductReplacement {
+  id                   String   @id @default(cuid())
+  sourceProductId      String
+  replacementProductId String
+  stepType             StepType
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  source      Product @relation("source", fields: [sourceProductId], references: [id], onDelete: Cascade)
+  replacement Product @relation("replacement", fields: [replacementProductId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceProductId, replacementProductId])
+  @@index([sourceProductId, active])
+  @@map("product_replacements")
+}
+
+// ─── QR Tokens ───────────────────────────────────────────────────────────────
+
+model QRTokenBatch {
+  id              String      @id @default(cuid())
+  batchName       String?
+  prefix          String      @default("AOMI-KIT")
+  quantity        Int
+  source          BatchSource
+  createdByUserId String?
+  createdAt       DateTime    @default(now())
+
+  tokens QRToken[]
+
+  @@map("qr_token_batches")
+}
+
+model QRToken {
+  id                String        @id @default(cuid())
+  token             String        @unique
+  batchId           String?
+  status            QRTokenStatus @default(AVAILABLE)
+  generatedByUserId String?
+  importedByUserId  String?
+  assignedAt        DateTime?
+  activatedAt       DateTime?
+  voidedAt          DateTime?
+  replacedByTokenId String?
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  batch   QRTokenBatch?     @relation(fields: [batchId], references: [id])
+  package Package?
+  events  ActivationEvent[]
+
+  @@index([status])
+  @@index([batchId])
+  @@map("qr_tokens")
+}
+
+// ─── Packages (immutable assignment snapshot) ────────────────────────────────
+
+model Package {
+  id                String        @id @default(cuid())
+  qrTokenId         String        @unique
+  routineTemplateId String
+  status            PackageStatus @default(ASSIGNED)
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  qrToken  QRToken         @relation(fields: [qrTokenId], references: [id])
+  template RoutineTemplate @relation(fields: [routineTemplateId], references: [id])
+  products PackageProduct[]
+
+  @@map("packages")
+}
+
+// Immutable per-step product snapshot; productId and originalProductId are
+// intentionally loose string references so this record survives deactivation.
+model PackageProduct {
+  id                    String   @id @default(cuid())
+  packageId             String
+  routineTemplateStepId String?
+  stepNumber            Int
+  stepType              StepType
+  productId             String
+  originalProductId     String?
+  isReplacement         Boolean  @default(false)
+  instruction           String?
+  createdAt             DateTime @default(now())
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId])
+  @@map("package_products")
+}
+
+// ─── Events & Logs ───────────────────────────────────────────────────────────
+
+model ActivationEvent {
+  id             String   @id @default(cuid())
+  qrTokenId      String
+  packageId      String?
+  externalUserId String?
+  eventType      String
+  metadataJson   Json?
+  createdAt      DateTime @default(now())
+
+  qrToken QRToken @relation(fields: [qrTokenId], references: [id])
+
+  @@index([qrTokenId])
+  @@map("activation_events")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  action       String
+  entityType   String?
+  entityId     String?
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@map("audit_logs")
 }
