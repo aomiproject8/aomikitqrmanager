@@ -11,33 +11,58 @@ import {
 const adapter = new PrismaPg(process.env.DIRECT_URL!);
 const prisma = new PrismaClient({ adapter });
 
+function requiredEnv(name: string) {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+}
+
 async function main() {
   console.log("🌱 Seeding database...");
 
   // ── Users ─────────────────────────────────────────────────────────────────
 
-  const adminPassword = await bcrypt.hash("admin-password-change-me", 12);
-  const sellerPassword = await bcrypt.hash("seller-password-change-me", 12);
+  const adminPlainPassword = requiredEnv("SEED_ADMIN_PASSWORD");
+  const sellerPlainPassword = requiredEnv("SEED_SELLER_PASSWORD");
+
+  const adminPassword = await bcrypt.hash(adminPlainPassword, 12);
+  const sellerPassword = await bcrypt.hash(sellerPlainPassword, 12);
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@aomi.internal" },
-    update: {},
+    update: {
+      name: "AOMI Admin",
+      passwordHash: adminPassword,
+      role: "ADMIN",
+      isActive: true,
+    },
     create: {
       name: "AOMI Admin",
       email: "admin@aomi.internal",
       passwordHash: adminPassword,
       role: "ADMIN",
+      isActive: true,
     },
   });
 
   const seller = await prisma.user.upsert({
     where: { email: "seller@aomi.internal" },
-    update: {},
+    update: {
+      name: "AOMI Seller",
+      passwordHash: sellerPassword,
+      role: "SELLER",
+      isActive: true,
+    },
     create: {
       name: "AOMI Seller",
       email: "seller@aomi.internal",
       passwordHash: sellerPassword,
       role: "SELLER",
+      isActive: true,
     },
   });
 
@@ -46,19 +71,46 @@ async function main() {
   // ── Diagnoses ─────────────────────────────────────────────────────────────
 
   const diagnosisData = [
-    { name: "Oily Skin", slug: "oily-skin", description: "Excess sebum production" },
+    {
+      name: "Oily Skin",
+      slug: "oily-skin",
+      description: "Excess sebum production",
+    },
     { name: "Pores", slug: "pores", description: "Enlarged or clogged pores" },
-    { name: "Dark Spots", slug: "dark-spots", description: "Hyperpigmentation and uneven tone" },
-    { name: "Sensitive Skin", slug: "sensitive-skin", description: "Easily irritated skin" },
-    { name: "Hydration", slug: "hydration", description: "Dry or dehydrated skin" },
-    { name: "Mixed Skin", slug: "mixed-skin", description: "Combination of oily and dry zones" },
+    {
+      name: "Dark Spots",
+      slug: "dark-spots",
+      description: "Hyperpigmentation and uneven tone",
+    },
+    {
+      name: "Sensitive Skin",
+      slug: "sensitive-skin",
+      description: "Easily irritated skin",
+    },
+    {
+      name: "Hydration",
+      slug: "hydration",
+      description: "Dry or dehydrated skin",
+    },
+    {
+      name: "Mixed Skin",
+      slug: "mixed-skin",
+      description: "Combination of oily and dry zones",
+    },
   ];
 
   for (const d of diagnosisData) {
     await prisma.diagnosis.upsert({
       where: { slug: d.slug },
-      update: {},
-      create: d,
+      update: {
+        name: d.name,
+        description: d.description,
+        active: true,
+      },
+      create: {
+        ...d,
+        active: true,
+      },
     });
   }
 
@@ -76,8 +128,14 @@ async function main() {
   for (const rt of routineTypeData) {
     await prisma.routineType.upsert({
       where: { slug: rt.slug },
-      update: {},
-      create: rt,
+      update: {
+        name: rt.name,
+        active: true,
+      },
+      create: {
+        ...rt,
+        active: true,
+      },
     });
   }
 
@@ -139,8 +197,17 @@ async function main() {
   for (const p of productData) {
     const product = await prisma.product.upsert({
       where: { sku: p.sku },
-      update: {},
-      create: p,
+      update: {
+        name: p.name,
+        category: p.category,
+        functionDescription: p.functionDescription,
+        stepType: p.stepType,
+        active: true,
+      },
+      create: {
+        ...p,
+        active: true,
+      },
     });
     createdProducts[p.sku] = product.id;
   }
@@ -160,11 +227,15 @@ async function main() {
           replacementProductId: serum2Id,
         },
       },
-      update: {},
+      update: {
+        stepType: StepType.SERUM,
+        active: true,
+      },
       create: {
         sourceProductId: serum1Id,
         replacementProductId: serum2Id,
         stepType: StepType.SERUM,
+        active: true,
       },
     });
 
@@ -194,10 +265,12 @@ async function main() {
     const template = await prisma.routineTemplate.create({
       data: {
         name: "Oily Skin + Pores Morning Routine",
-        description: "A balanced morning routine targeting oily skin and enlarged pores",
+        description:
+          "A balanced morning routine targeting oily skin and enlarged pores",
         durationDays: 20,
         routineTypeId: morningType.id,
-        generalInstructions: "Apply each product in order, waiting 30 seconds between steps. Use SPF every morning without exception.",
+        generalInstructions:
+          "Apply each product in order, waiting 30 seconds between steps. Use SPF every morning without exception.",
         diagnoses: {
           create: [
             { diagnosisId: oilyDiagnosis.id },
@@ -210,13 +283,15 @@ async function main() {
               stepNumber: 1,
               stepType: StepType.CLEANSER,
               defaultProductId: createdProducts["AOMI-CLN-001"],
-              instruction: "Apply to damp skin, massage for 60 seconds, rinse thoroughly.",
+              instruction:
+                "Apply to damp skin, massage for 60 seconds, rinse thoroughly.",
             },
             {
               stepNumber: 2,
               stepType: StepType.TONER,
               defaultProductId: createdProducts["AOMI-TNR-001"],
-              instruction: "Apply to a cotton pad and sweep gently across face.",
+              instruction:
+                "Apply to a cotton pad and sweep gently across face.",
             },
             {
               stepNumber: 3,
@@ -234,7 +309,8 @@ async function main() {
               stepNumber: 5,
               stepType: StepType.SUNSCREEN,
               defaultProductId: createdProducts["AOMI-SPF-001"],
-              instruction: "Apply generously as the last step. Reapply every 2 hours outdoors.",
+              instruction:
+                "Apply generously as the last step. Reapply every 2 hours outdoors.",
             },
           ],
         },
@@ -277,15 +353,19 @@ async function main() {
     });
 
     console.log(
-      `  ✓ QR batch: "${batch.batchName}" with ${sampleTokens.length} tokens`
+      `  ✓ QR batch: "${batch.batchName}" with ${sampleTokens.length} tokens`,
     );
   } else {
     console.log(`  ↩ Sample QR batch already exists, skipping`);
   }
 
   console.log("\n✅ Seed complete.");
-  console.log("   Admin login:  admin@aomi.internal / admin-password-change-me");
-  console.log("   Seller login: seller@aomi.internal / seller-password-change-me");
+  console.log(
+    "   Admin login:  admin@aomi.internal / value from SEED_ADMIN_PASSWORD",
+  );
+  console.log(
+    "   Seller login: seller@aomi.internal / value from SEED_SELLER_PASSWORD",
+  );
   console.log("   ⚠️  Change these passwords before production use.");
 }
 
