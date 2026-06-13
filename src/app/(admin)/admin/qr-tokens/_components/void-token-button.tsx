@@ -3,9 +3,22 @@
 import { useActionState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Ban } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { voidToken, type TokenActionState } from "../actions"
 
-export default function VoidTokenButton({ id }: { id: string }) {
+export default function VoidTokenButton({ id, variant = "icon" }: { id: string; variant?: "icon" | "full" }) {
   const [, formAction, pending] = useActionState<TokenActionState, FormData>(
     async (prev, fd) => {
       const res = await voidToken(prev, fd)
@@ -16,25 +29,58 @@ export default function VoidTokenButton({ id }: { id: string }) {
     {}
   )
 
-  return (
-    <form
-      action={formAction}
-      onSubmit={(e) => {
-        if (!confirm("Void this token? This cannot be undone.")) {
-          e.preventDefault()
-        }
-      }}
-    >
-      <input type="hidden" name="id" value={id} />
+  const trigger = variant === "full" ? (
+    <AlertDialogTrigger asChild>
       <Button
-        type="submit"
-        variant="ghost"
-        size="sm"
+        variant="destructive"
         disabled={pending}
-        className="text-red-600 hover:text-red-700 dark:text-red-400"
+        className="gap-2 font-medium"
       >
-        {pending ? "Voiding…" : "Void"}
+        <Ban className="size-4" />
+        Void Token
       </Button>
-    </form>
+    </AlertDialogTrigger>
+  ) : (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={pending}
+              className="text-red-650 hover:text-red-700 dark:text-red-400"
+              aria-label="Void Token"
+            >
+              <Ban className="size-4" />
+            </Button>
+          </AlertDialogTrigger>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Void Token</TooltipContent>
+    </Tooltip>
+  )
+
+  return (
+    <AlertDialog>
+      {trigger}
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Void Token</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to void this token? This action cannot be undone and will revoke the token&apos;s lifecycle immediately.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <form action={formAction}>
+            <input type="hidden" name="id" value={id} />
+            <AlertDialogAction type="submit">
+              Void
+            </AlertDialogAction>
+          </form>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

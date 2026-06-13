@@ -78,7 +78,7 @@ export async function createProduct(
   })
 
   revalidatePath("/admin/products")
-  redirect(`/admin/products/${product.id}`)
+  redirect(`/admin/products/${product.id}?created=true`)
 }
 
 export async function updateProduct(

@@ -2,6 +2,22 @@ import { requireRole } from "@/lib/auth-helpers"
 import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { Pencil, Ban, CheckCircle, Plus, Layout } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { AdminFormSheet } from "@/components/ui/admin-form-sheet"
+import { PageHeader } from "@/components/ui/page-header"
+import { EmptyState } from "@/components/ui/empty-state"
 import {
   createRoutineType,
   updateRoutineType,
@@ -14,10 +30,10 @@ export const metadata = { title: "Routine Types — AOMI Kit Admin" }
 export default async function RoutineTypesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; edit?: string }>
+  searchParams: Promise<{ q?: string; edit?: string; new?: string }>
 }) {
   await requireRole("ADMIN")
-  const { q, edit } = await searchParams
+  const { q, edit, new: showNew } = await searchParams
 
   const routineTypes = await prisma.routineType.findMany({
     where: q
@@ -40,28 +56,27 @@ export default async function RoutineTypesPage({
     ? updateRoutineType.bind(null, editItem.id)
     : null
 
+  const isSheetOpen = !!edit || !!showNew
+  const closeUrl = q ? `/admin/routine-types?q=${q}` : "/admin/routine-types"
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Routine Types
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          {routineTypes.length} routine type{routineTypes.length !== 1 ? "s" : ""}
-          {q ? ` matching "${q}"` : ""}
-        </p>
-      </div>
-
-      {/* Create or Edit form */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-          {editItem ? `Editing: ${editItem.name}` : "Add new routine type"}
-        </h2>
-        <RoutineTypeForm
-          action={updateAction ?? createRoutineType}
-          editItem={editItem ?? undefined}
-        />
-      </div>
+      <PageHeader
+        title="Routine Types"
+        description={
+          <span>
+            {routineTypes.length} routine classification type{routineTypes.length !== 1 ? "s" : ""}
+            {q ? ` matching "${q}"` : ""}
+          </span>
+        }
+        action={
+          <Button asChild>
+            <Link href={`/admin/routine-types?new=true${q ? `&q=${q}` : ""}`}>
+              <Plus className="mr-2 size-4" /> New routine type
+            </Link>
+          </Button>
+        }
+      />
 
       {/* Search */}
       <form method="GET" className="flex gap-2 max-w-sm">
@@ -81,91 +96,160 @@ export default async function RoutineTypesPage({
         )}
       </form>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        {routineTypes.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            No routine types found.
-          </div>
+      {/* Table / Empty state */}
+      {routineTypes.length === 0 ? (
+        q ? (
+          <EmptyState
+            icon={Layout}
+            title="No routine types found"
+            description={`No routine types matched your search filter "${q}". Try clearing the search query.`}
+            action={
+              <Button variant="outline" asChild>
+                <Link href="/admin/routine-types">Clear Search</Link>
+              </Button>
+            }
+          />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                  Slug
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                  Templates
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {routineTypes.map((rt) => (
-                <tr
-                  key={rt.id}
-                  className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
-                >
-                  <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">
-                    {rt.name}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                    {rt.slug}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-                    {rt._count.templates}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={
-                        rt.active
-                          ? "inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                          : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                      }
-                    >
-                      {rt.active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link
-                          href={`/admin/routine-types?edit=${rt.id}${q ? `&q=${q}` : ""}`}
-                        >
-                          Edit
-                        </Link>
-                      </Button>
-                      <form action={toggleRoutineTypeActive}>
-                        <input type="hidden" name="id" value={rt.id} />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="sm"
-                          className={
-                            rt.active
-                              ? "text-red-600 hover:text-red-700 dark:text-red-400"
-                              : "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
-                          }
-                        >
-                          {rt.active ? "Deactivate" : "Activate"}
-                        </Button>
-                      </form>
-                    </div>
-                  </td>
+          <EmptyState
+            icon={Layout}
+            title="No routine types yet"
+            description="Create your first routine type classification (e.g. Morning, Evening, Weekly Treatment)."
+            action={
+              <Button asChild>
+                <Link href="/admin/routine-types?new=true">
+                  <Plus className="mr-2 size-4" /> New routine type
+                </Link>
+              </Button>
+            }
+          />
+        )
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+                  <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                    Name
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                    Slug
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                    Templates
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {routineTypes.map((rt) => (
+                  <tr
+                    key={rt.id}
+                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors"
+                  >
+                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50 whitespace-nowrap">
+                      {rt.name}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-550 dark:text-zinc-400 whitespace-nowrap">
+                      {rt.slug}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                      {rt._count.templates}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span
+                        className={
+                          rt.active
+                            ? "inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                            : "inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-550 dark:bg-zinc-800 dark:text-zinc-400"
+                        }
+                      >
+                        {rt.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" asChild aria-label="Edit Routine Type">
+                              <Link href={`/admin/routine-types?edit=${rt.id}${q ? `&q=${q}` : ""}`}>
+                                <Pencil className="size-4" />
+                              </Link>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit Routine Type</TooltipContent>
+                        </Tooltip>
+
+                        <AlertDialog>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={
+                                      rt.active
+                                        ? "text-red-650 hover:text-red-750 dark:text-red-400"
+                                        : "text-emerald-605 hover:text-emerald-700 dark:text-emerald-400"
+                                    }
+                                    aria-label={rt.active ? "Deactivate Routine Type" : "Activate Routine Type"}
+                                  >
+                                    {rt.active ? <Ban className="size-4" /> : <CheckCircle className="size-4" />}
+                                  </Button>
+                                </AlertDialogTrigger>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{rt.active ? "Deactivate" : "Activate"}</TooltipContent>
+                          </Tooltip>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                {rt.active ? "Deactivate Routine Type" : "Activate Routine Type"}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to {rt.active ? "deactivate" : "activate"} &quot;{rt.name}&quot;?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <form action={toggleRoutineTypeActive}>
+                                <input type="hidden" name="id" value={rt.id} />
+                                <AlertDialogAction type="submit">
+                                  {rt.active ? "Deactivate" : "Activate"}
+                                </AlertDialogAction>
+                              </form>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <AdminFormSheet
+        open={isSheetOpen}
+        title={editItem ? "Edit Routine Type" : "New Routine Type"}
+        description={editItem ? `Update details for "${editItem.name}"` : "Create a new skin routine classification type."}
+        closeUrl={closeUrl}
+        className="w-full sm:max-w-md"
+      >
+        <RoutineTypeForm
+          key={editItem?.id ?? "new"}
+          action={updateAction ?? createRoutineType}
+          editItem={editItem ?? undefined}
+        />
+      </AdminFormSheet>
     </div>
   )
 }

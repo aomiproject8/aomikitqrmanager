@@ -1,4 +1,5 @@
 import { requireRole } from "@/lib/auth-helpers"
+import { PageHeader } from "@/components/ui/page-header"
 
 export const metadata = { title: "Admin Dashboard — AOMI Kit QR Manager" }
 
@@ -7,14 +8,10 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Admin Dashboard
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Welcome back, {session.user.name ?? session.user.email}
-        </p>
-      </div>
+      <PageHeader
+        title="Admin Dashboard"
+        description={`Welcome back, ${session.user.name ?? session.user.email}`}
+      />
 
       <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-4">

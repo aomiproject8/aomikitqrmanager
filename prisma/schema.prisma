@@ -241,6 +241,7 @@ model QRToken {
 
   @@index([status])
   @@index([batchId])
+  @@index([createdAt])
   @@map("qr_tokens")
 }
 

@@ -6,9 +6,11 @@ export async function writeAuditLog(
   action: string,
   entityType: string,
   entityId: string,
-  metadata?: Prisma.InputJsonObject
+  metadata?: Prisma.InputJsonObject,
+  tx?: Prisma.TransactionClient
 ) {
-  await prisma.auditLog.create({
+  const client = tx || prisma
+  await client.auditLog.create({
     data: {
       actorUserId,
       action,
