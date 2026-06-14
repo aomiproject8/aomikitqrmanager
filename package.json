@@ -14,7 +14,10 @@
     "test:qr-import": "tsx scripts/test-qr-token-import-integrity.ts",
     "test:correctness": "tsx scripts/test-core-correctness.ts",
     "test:phase2": "tsx scripts/test-phase2.ts",
-    "test:export": "tsx scripts/test-export-streaming.ts"
+    "test:export": "tsx scripts/test-export-streaming.ts",
+    "test:replacement-rules": "tsx scripts/test-replacement-rules.ts",
+    "test:images": "tsx scripts/test-images.ts",
+    "audit:replacement-rules": "tsx scripts/audit-replacement-rules.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

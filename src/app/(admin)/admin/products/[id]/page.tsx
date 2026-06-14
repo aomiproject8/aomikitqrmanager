@@ -50,9 +50,19 @@ export default async function EditProductPage({
   })
   if (!product) notFound()
 
+  // Only products with the same stepType are valid replacement candidates.
+  // Also exclude the source product itself and any already-configured replacements
+  // so the dropdown only shows actionable options.
+  const alreadyConfiguredIds = product.replacementSources.map(
+    (r) => r.replacementProductId
+  )
   const otherProducts = await prisma.product.findMany({
-    where: { active: true, id: { not: id } },
-    orderBy: [{ stepType: "asc" }, { name: "asc" }],
+    where: {
+      active: true,
+      stepType: product.stepType,
+      id: { notIn: [id, ...alreadyConfiguredIds] },
+    },
+    orderBy: { name: "asc" },
     select: { id: true, name: true, stepType: true },
   })
 

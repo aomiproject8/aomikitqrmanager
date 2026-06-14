@@ -1,6 +1,12 @@
 "use client"
 
-import { useActionState, useState, useTransition } from "react"
+import {
+  useActionState,
+  useState,
+  useTransition,
+  useRef,
+  useCallback,
+} from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -12,6 +18,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { ArrowUp, ArrowDown, X } from "lucide-react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   uploadProductImage,
   deleteProductImage,
@@ -31,21 +43,25 @@ type Props = {
   images: ImageRow[]
 }
 
+type PendingFile = {
+  file: File
+  previewUrl: string
+  imageType: string
+}
+
 const IMAGE_TYPES = ["FRONT", "SECONDARY", "REFERENCE"] as const
+const MAX_PENDING = 10
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 export default function ProductImages({ productId, images }: Props) {
   const uploadAction = uploadProductImage.bind(null, productId)
   const deleteAction = deleteProductImage.bind(null, productId)
-
-  const [uploadState, uploadFormAction, uploading] = useActionState<
-    ImageActionState,
-    FormData
-  >(async (prev, fd) => {
-    const res = await uploadAction(prev, fd)
-    if (res.error) toast.error(res.error)
-    else if (res.ok) toast.success("Image uploaded")
-    return res
-  }, {})
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [, deleteFormAction, deleting] = useActionState<
     ImageActionState,
@@ -59,8 +75,10 @@ export default function ProductImages({ productId, images }: Props) {
 
   const [isReordering, startReorder] = useTransition()
   const [localOrder, setLocalOrder] = useState<ImageRow[]>(images)
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
 
-  // Keep local order in sync if server data changes (e.g. after revalidate)
+  // Keep local order in sync after server revalidation.
   const serverIds = images.map((i) => i.id).join(",")
   const localIds = localOrder.map((i) => i.id).join(",")
   if (serverIds !== localIds) {
@@ -82,65 +100,172 @@ export default function ProductImages({ productId, images }: Props) {
     })
   }
 
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const incoming = Array.from(e.target.files ?? [])
+      setPendingFiles((prev) => {
+        const remaining = MAX_PENDING - prev.length
+        const added = incoming.slice(0, remaining).map((file) => ({
+          file,
+          previewUrl: URL.createObjectURL(file),
+          imageType: "REFERENCE",
+        }))
+        return [...prev, ...added]
+      })
+      // Reset so the same file can be picked again
+      e.target.value = ""
+    },
+    []
+  )
+
+  function removePending(index: number) {
+    setPendingFiles((prev) => {
+      URL.revokeObjectURL(prev[index].previewUrl)
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
+  function setPendingType(index: number, imageType: string) {
+    setPendingFiles((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, imageType } : p))
+    )
+  }
+
+  async function uploadAll() {
+    const total = pendingFiles.length
+    for (let i = 0; i < total; i++) {
+      setUploadingIndex(i)
+      const { file, imageType } = pendingFiles[i]
+      const fd = new FormData()
+      fd.append("file", file)
+      fd.append("imageType", imageType)
+      const res = await uploadAction({}, fd)
+      if (res.error) {
+        toast.error(`${file.name}: ${res.error}`)
+        setUploadingIndex(null)
+        return
+      }
+    }
+    pendingFiles.forEach((p) => URL.revokeObjectURL(p.previewUrl))
+    setPendingFiles([])
+    setUploadingIndex(null)
+    toast.success(total > 1 ? `${total} images uploaded` : "Image uploaded")
+  }
+
+  const uploading = uploadingIndex !== null
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">
-          Images
-        </h2>
+        <div>
+          <h2 className="text-sm font-semibold">Images</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            The first image is the primary (display) image.
+          </p>
+        </div>
         <span className="text-xs text-muted-foreground">
-          {localOrder.length} image{localOrder.length !== 1 ? "s" : ""}
+          {localOrder.length} uploaded
         </span>
       </div>
 
-      {/* Upload form */}
-      <form
-        action={uploadFormAction}
-        className="form-section flex flex-wrap items-end gap-3"
-      >
+      {/* File picker */}
+      <div className="form-section space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="file">File</Label>
+          <Label htmlFor="file-picker">Add images (up to {MAX_PENDING})</Label>
           <input
-            id="file"
-            name="file"
+            ref={fileInputRef}
+            id="file-picker"
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
-            required
-            disabled={uploading}
-            className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-full file:border-0 file:bg-muted file:px-3 file:py-2 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted/80"
+            multiple
+            disabled={uploading || pendingFiles.length >= MAX_PENDING}
+            onChange={handleFileChange}
+            className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-full file:border-0 file:bg-muted file:px-3 file:py-2 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted/80 disabled:opacity-50"
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="imageType">Type</Label>
-          <Select name="imageType" defaultValue="REFERENCE" disabled={uploading}>
-            <SelectTrigger id="imageType" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {IMAGE_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {t.charAt(0) + t.slice(1).toLowerCase()}
-                </SelectItem>
+
+        {/* Pending previews */}
+        {pendingFiles.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Ready to upload ({pendingFiles.length})
+            </p>
+            <ul className="space-y-2">
+              {pendingFiles.map((pf, index) => (
+                <li
+                  key={index}
+                  className="flex items-center gap-3 rounded-2xl border border-border bg-muted/30 p-2"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={pf.previewUrl}
+                    alt=""
+                    className="size-12 shrink-0 rounded-lg object-cover"
+                  />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="truncate text-sm font-medium">
+                      {pf.file.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatBytes(pf.file.size)}
+                    </p>
+                    <Select
+                      value={pf.imageType}
+                      onValueChange={(v) => setPendingType(index, v)}
+                      disabled={uploading}
+                    >
+                      <SelectTrigger className="h-7 w-36 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {IMAGE_TYPES.map((t) => (
+                          <SelectItem key={t} value={t} className="text-xs">
+                            {t.charAt(0) + t.slice(1).toLowerCase()}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {uploading && uploadingIndex === index ? (
+                    <span className="shrink-0 text-xs text-primary">
+                      Uploading…
+                    </span>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => removePending(index)}
+                          disabled={uploading}
+                          className="shrink-0 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+                          aria-label={`Remove ${pf.file.name}`}
+                        >
+                          <X className="size-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Remove</TooltipContent>
+                    </Tooltip>
+                  )}
+                </li>
               ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button type="submit" disabled={uploading}>
-          {uploading ? "Uploading…" : "Upload"}
-        </Button>
-      </form>
+            </ul>
 
-      {uploadState.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {uploadState.error}
-        </p>
-      )}
+            <Button
+              type="button"
+              onClick={uploadAll}
+              disabled={uploading}
+            >
+              {uploading
+                ? `Uploading ${uploadingIndex! + 1} of ${pendingFiles.length}…`
+                : `Upload ${pendingFiles.length} image${pendingFiles.length !== 1 ? "s" : ""}`}
+            </Button>
+          </div>
+        )}
+      </div>
 
-      {/* Image grid */}
+      {/* Uploaded image grid */}
       {localOrder.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No images yet.
-        </p>
+        <p className="text-sm text-muted-foreground">No images yet.</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {localOrder.map((img, index) => (
@@ -155,28 +280,47 @@ export default function ProductImages({ productId, images }: Props) {
                   alt={`Product image ${index + 1}`}
                   className="h-full w-full object-cover"
                 />
+                {index === 0 && (
+                  <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    Primary
+                  </span>
+                )}
               </div>
               <div className="flex items-center justify-between gap-1 p-2">
                 <Badge variant="secondary">{img.imageType}</Badge>
                 <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => move(index, -1)}
-                    disabled={index === 0 || isReordering}
-                    className="rounded-full p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                    aria-label="Move up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => move(index, 1)}
-                    disabled={index === localOrder.length - 1 || isReordering}
-                    className="rounded-full p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                    aria-label="Move down"
-                  >
-                    ↓
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => move(index, -1)}
+                        disabled={index === 0 || isReordering}
+                        className="rounded-full p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
+                        aria-label="Move up"
+                      >
+                        <ArrowUp className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {index === 0 ? "Already first" : "Move up"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => move(index, 1)}
+                        disabled={index === localOrder.length - 1 || isReordering}
+                        className="rounded-full p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
+                        aria-label="Move down"
+                      >
+                        <ArrowDown className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {index === localOrder.length - 1 ? "Already last" : "Move down"}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
               <form action={deleteFormAction} className="px-2 pb-2">

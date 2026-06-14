@@ -33,17 +33,6 @@ type Props = {
   products: ProductOption[]
 }
 
-const STEP_TYPES = [
-  "CLEANSER",
-  "TONER",
-  "SERUM",
-  "CREAM",
-  "SUNSCREEN",
-  "EXFOLIANT",
-  "TREATMENT",
-  "MOISTURIZER",
-] as const
-
 export default function ReplacementRules({
   sourceProductId,
   sourceStepType,
@@ -73,68 +62,49 @@ export default function ReplacementRules({
     return res
   }, {})
 
-  const candidates = products.filter((p) => p.id !== sourceProductId)
-
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-sm font-semibold">
-          Replacement Rules
-        </h2>
+        <h2 className="text-sm font-semibold">Replacement Rules</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Products that may be swapped in for this one during assignment.
+          Candidates must share the same step type ({sourceStepType}).
         </p>
       </div>
 
-      {/* Add form */}
-      <form
-        action={addFormAction}
-        className="form-section flex flex-wrap items-end gap-3"
-      >
-        <div className="space-y-1.5">
+      {/* Add form — stepType is derived server-side from the source product */}
+      {products.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No other active {sourceStepType} products to add as replacements.
+        </p>
+      ) : (
+        <form action={addFormAction} className="form-section space-y-1.5">
           <Label htmlFor="replacementProductId">Replacement product</Label>
-          <Select name="replacementProductId" disabled={adding}>
-            <SelectTrigger id="replacementProductId" className="w-64">
-              <SelectValue placeholder="Select product…" />
-            </SelectTrigger>
-            <SelectContent>
-              {candidates.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name} ({p.stepType})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="rule-stepType">Step type</Label>
-          <Select
-            name="stepType"
-            defaultValue={sourceStepType}
-            disabled={adding}
-          >
-            <SelectTrigger id="rule-stepType" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STEP_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {t.charAt(0) + t.slice(1).toLowerCase()}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button type="submit" disabled={adding}>
-          {adding ? "Adding…" : "Add rule"}
-        </Button>
-      </form>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Select name="replacementProductId" disabled={adding}>
+              <SelectTrigger id="replacementProductId" className="w-full sm:w-64">
+                <SelectValue placeholder="Select product…" />
+              </SelectTrigger>
+              <SelectContent>
+                {products.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Button type="submit" disabled={adding} className="shrink-0">
+              {adding ? "Adding…" : "Add rule"}
+            </Button>
+          </div>
+        </form>
+      )}
 
       {/* Existing rules */}
       {rules.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No replacement rules.
-        </p>
+        <p className="text-sm text-muted-foreground">No replacement rules.</p>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-3xl border border-border">
           {rules.map((rule) => (

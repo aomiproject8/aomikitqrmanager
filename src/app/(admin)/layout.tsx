@@ -2,7 +2,8 @@ import { requireRole } from "@/lib/auth-helpers"
 import { AdminNavLinks } from "@/components/admin-nav"
 import { AdminMobileNav } from "@/components/admin-mobile-nav"
 import LogoutButton from "@/components/auth/logout-button"
-import { QrCode, ShieldCheck } from "lucide-react"
+import Image from "next/image"
+import { ShieldCheck } from "lucide-react"
 
 export default async function AdminLayout({
   children,
@@ -17,13 +18,14 @@ export default async function AdminLayout({
 
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground md:flex">
         <div className="flex items-center gap-3 border-b border-sidebar-border px-2 pb-5 pt-1">
-          <span className="flex size-10 items-center justify-center rounded-2xl bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
-            <QrCode className="size-5" />
-          </span>
-          <div>
-            <p className="font-semibold tracking-tight">AOMI Kit</p>
-            <p className="text-xs text-sidebar-foreground/50">QR Manager</p>
-          </div>
+          <Image
+            src="/logo/aomiLogo.svg"
+            alt="AOMI"
+            width={100}
+            height={30}
+            className="h-7 w-auto object-contain"
+            priority
+          />
         </div>
         <div className="flex-1 py-5">
           <p className="mb-2 px-3 text-[0.65rem] font-semibold tracking-[0.18em] text-sidebar-foreground/35 uppercase">

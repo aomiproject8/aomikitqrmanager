@@ -85,6 +85,7 @@ export type StepProductOption = {
   name: string
   sku: string | null
   isReplacement: boolean
+  primaryImageUrl: string | null
 }
 
 export type RoutineStepPreview = {
@@ -143,6 +144,30 @@ async function loadRoutinePreviewData(routineId: string): Promise<RoutinePreview
     orderBy: { name: "asc" },
   })
 
+  // Collect all product IDs that will appear as options, then batch-fetch their
+  // primary images in one query to avoid N+1.
+  const allOptionIds = new Set<string>()
+  for (const step of routine.steps) {
+    if (step.defaultProductId) allOptionIds.add(step.defaultProductId)
+  }
+  for (const rule of replacementRules) {
+    if (rule.replacement.active) allOptionIds.add(rule.replacement.id)
+  }
+  for (const p of sameTypeProducts) allOptionIds.add(p.id)
+
+  const primaryImages = await prisma.productImage.findMany({
+    where: { productId: { in: Array.from(allOptionIds) } },
+    orderBy: { sortOrder: "asc" },
+    select: { productId: true, imageUrl: true },
+  })
+  // Keep only the first image per product (lowest sortOrder).
+  const primaryImageMap = new Map<string, string>()
+  for (const img of primaryImages) {
+    if (!primaryImageMap.has(img.productId)) {
+      primaryImageMap.set(img.productId, img.imageUrl)
+    }
+  }
+
   const steps: RoutineStepPreview[] = routine.steps.map((step) => {
     const options = new Map<string, StepProductOption>()
 
@@ -153,6 +178,7 @@ async function loadRoutinePreviewData(routineId: string): Promise<RoutinePreview
         name: step.defaultProduct.name,
         sku: step.defaultProduct.sku,
         isReplacement: false,
+        primaryImageUrl: primaryImageMap.get(step.defaultProduct.id) ?? null,
       })
     }
 
@@ -165,6 +191,7 @@ async function loadRoutinePreviewData(routineId: string): Promise<RoutinePreview
         name: p.name,
         sku: p.sku,
         isReplacement: p.id !== step.defaultProductId,
+        primaryImageUrl: primaryImageMap.get(p.id) ?? null,
       })
     }
 
@@ -179,6 +206,7 @@ async function loadRoutinePreviewData(routineId: string): Promise<RoutinePreview
           name: rule.replacement.name,
           sku: rule.replacement.sku,
           isReplacement: true,
+          primaryImageUrl: primaryImageMap.get(rule.replacement.id) ?? null,
         })
       }
     }

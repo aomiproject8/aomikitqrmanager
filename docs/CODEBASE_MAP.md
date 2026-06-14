@@ -47,7 +47,13 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   ├── test-qr-token-import-integrity.ts  # integration test: import invariants
 │   ├── test-core-correctness.ts           # integration test: auth + data invariants (Phase 1)
 │   ├── test-phase2.ts                     # unit tests: API hardening + upload (Phase 2)
-│   └── test-export-streaming.ts           # unit tests: CSV export logic (Phase 3)
+│   ├── test-export-streaming.ts           # unit tests: CSV export logic (Phase 3)
+│   ├── test-replacement-rules.ts          # integration tests: replacement-rule invariants (14 assertions)
+│   ├── test-images.ts                     # unit + integration tests: image management (14 assertions)
+│   └── audit-replacement-rules.ts         # dry-run audit: flags ProductReplacement records with stepType mismatch
+├── public/
+│   └── logo/
+│       └── aomiLogo.svg       # application logo — used in all shell/branding locations
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx         # root layout (font, Toaster)
@@ -62,7 +68,7 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   │   │       ├── [token]/route.ts   # GET — mobile token lookup
 │   │   │       └── activate/route.ts  # POST — mobile activation
 │   │   ├── (admin)/
-│   │   │   ├── layout.tsx             # admin shell (nav, auth guard)
+│   │   │   ├── layout.tsx             # admin shell (desktop sidebar, mobile nav, auth guard)
 │   │   │   ├── error.tsx              # admin group error boundary
 │   │   │   ├── admin/page.tsx         # admin dashboard
 │   │   │   ├── admin/products/        # product CRUD + image mgmt
@@ -71,7 +77,7 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   │   │   ├── admin/routines/        # routine template CRUD
 │   │   │   └── admin/qr-tokens/       # QR token table, generate, import, void
 │   │   └── (seller)/
-│   │       ├── layout.tsx             # seller shell (auth guard)
+│   │       ├── layout.tsx             # seller shell (auth guard, header nav with logo)
 │   │       ├── error.tsx              # seller group error boundary
 │   │       ├── seller/page.tsx        # seller dashboard
 │   │       └── seller/assign/         # multi-step assignment flow
@@ -80,17 +86,19 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   ├── proxy.ts               # Next.js 16 middleware (route guards)
 │   ├── types/next-auth.d.ts   # augments Session/User/JWT with id+role
 │   ├── components/
-│   │   ├── admin-nav.tsx      # desktop admin sidebar
-│   │   ├── admin-mobile-nav.tsx  # mobile admin nav
-│   │   ├── auth/              # login-form, logout-button
-│   │   └── ui/                # shadcn primitives + custom components
+│   │   ├── admin-nav.tsx         # desktop admin sidebar nav links
+│   │   ├── admin-mobile-nav.tsx  # mobile admin top bar + Sheet nav (aomiLogo.svg only, no QR icon)
+│   │   ├── auth/
+│   │   │   ├── login-form.tsx    # credential login form (aomiLogo.svg branding, no QR icon)
+│   │   │   └── logout-button.tsx # full-width logout button (sidebar-aligned)
+│   │   └── ui/                   # shadcn primitives + custom components
 │   ├── lib/
 │   │   ├── prisma.ts          # PrismaClient singleton (PrismaPg adapter)
 │   │   ├── auth-helpers.ts    # requireAuth(), requireRole(), requireAnyRole()
-│   │   ├── supabase-server.ts # getSupabaseAdmin(), productImagePublicUrl()
+│   │   ├── supabase-server.ts # getSupabaseAdmin(), productImagePublicUrl() — server-only, "server-only" sentinel
 │   │   ├── mobile-api.ts      # checkMobileApiKey() — timing-safe comparison
 │   │   ├── token.ts           # generateToken(), normalizeToken(), isValidTokenFormat()
-│   │   ├── audit.ts           # writeAuditLog() — accepts optional tx
+│   │   ├── audit.ts           # writeAuditLog() — accepts optional tx for use inside transactions
 │   │   ├── slug.ts            # toSlug()
 │   │   ├── utils.ts           # cn() (Tailwind merge)
 │   │   └── server/
@@ -106,7 +114,7 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   ├── DEPLOYMENT.md          # Vercel + Supabase deployment
 │   └── QR_TOKEN_LIFECYCLE.md  # state machine reference
 ├── graphify-out/
-│   ├── GRAPH_REPORT.md        # auto-generated knowledge graph report
+│   ├── GRAPH_REPORT.md        # auto-generated knowledge graph report (2026-06-14: 335 nodes, 274 edges)
 │   ├── graph.json             # machine-readable graph (gitignored)
 │   └── graph.html             # interactive visualization (gitignored)
 ├── .env.example               # template — copy to .env and fill in values
@@ -132,6 +140,7 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 | `/admin/qr-tokens` | `admin/qr-tokens/page.tsx` | `admin/qr-tokens/actions.ts` |
 | `/admin/qr-tokens/generate` | `admin/qr-tokens/generate/page.tsx` | `admin/qr-tokens/generate/generate-actions.ts` |
 | `/admin/qr-tokens/import` | `admin/qr-tokens/import/page.tsx` | `admin/qr-tokens/import/import-actions.ts` |
+| `/admin/batches` | redirect → `/admin/qr-tokens` | — |
 
 ### Seller pages (`/seller/*`)
 
@@ -234,6 +243,24 @@ Voiding a token also syncs the linked `Package.status` to `VOIDED` in the same t
 
 ---
 
+## Package lifecycle
+
+```
+Package is created ──► ASSIGNED
+       │
+       │ mobile activation (POST /api/qr/activate)
+       ▼
+   ACTIVATED
+       │
+       │ admin void (voids the QRToken)
+       ▼
+   VOIDED
+```
+
+`Package.status` is always synchronized with its linked `QRToken.status`. Both transitions (ASSIGNED→ACTIVATED and *→VOIDED) happen inside the same Prisma `$transaction` as the QRToken status update.
+
+---
+
 ## Seller assignment flow
 
 Multi-step form in `src/app/(seller)/seller/assign/`:
@@ -243,10 +270,12 @@ Multi-step form in `src/app/(seller)/seller/assign/`:
 3. `getRoutinePreview(routineId)` — Server Action: builds the step list with replacement options. Takes one argument (routineId only).
 4. `confirmAssignment(payload)` — Server Action (Zod-validated):
    - Re-validates all product selections server-side against authoritative option set.
+   - Cross-stepType selections are rejected: each selected product must match the step's `stepType`.
    - `updateMany({ where: { id, status: "AVAILABLE" } })` race guard.
    - Creates `Package` + `PackageProduct[]` snapshot in the same `$transaction`.
    - Throws `TOKEN_TAKEN` if count === 0.
    - Writes audit log inside the transaction.
+   - Verifies that all chosen diagnoses still exist before committing.
 
 All four actions enforce `requireAnyRole("SELLER", "ADMIN")`.
 
@@ -256,49 +285,32 @@ Key files:
 
 ---
 
-## CSV import flow
+## Replacement rule flow and invariants
 
-Entry: `src/app/(admin)/admin/qr-tokens/import/import-actions.ts` (thin Server Action wrapper)
+The admin can configure replacement products for any product on the product detail page.
 
-Core logic: `src/lib/server/import-qr-tokens.ts` → `processQRTokenImport()`
+**Invariants:**
+- `ProductReplacement.stepType` must equal both `source.stepType` and `replacement.stepType`.
+- `addReplacementRule` (Server Action) derives `stepType` from the source product server-side — never from form input.
+- Candidates are filtered to the same `stepType` as the source product before display.
+- Changing a product's `stepType` via `updateProduct` is blocked if any `ProductReplacement` row references it as either source or replacement.
+- The admin must delete all rules before changing the step type.
 
-```
-CSV text
-  │
-  ├── PapaParse (header mode or flat mode)
-  ├── normalizeToken() + isValidTokenFormat() — mark invalid
-  ├── File-level deduplication (Set)
-  ├── DB-level deduplication (findMany)
-  └── $transaction:
-        ├── QRTokenBatch.create()
-        ├── QRToken.createMany({ skipDuplicates: true })
-        ├── delete empty batch if count === 0
-        ├── update batch.quantity if concurrent dup reduced count
-        └── writeAuditLog(…, tx)
-
-Invariant enforced (throws if violated):
-  totalRows === invalid + skippedDuplicate + inserted
+**Audit:**
+```bash
+npm run audit:replacement-rules   # dry-run — flags mismatched stepType rules in DB
+npm run test:replacement-rules    # 14 integration assertions covering all invariants
 ```
 
-Test: `npm run test:qr-import` (`scripts/test-qr-token-import-integrity.ts`)
+Key files:
+- `src/app/(admin)/admin/products/[id]/_components/replacement-rules.tsx` — UI (label above, Select + Button on same row at sm+)
+- `src/app/(admin)/admin/products/[id]/replacement-actions.ts` — `addReplacementRule`, `deleteReplacementRule`
+- `scripts/audit-replacement-rules.ts` — production audit script
+- `scripts/test-replacement-rules.ts` — regression test (14 assertions, cases A–N)
 
 ---
 
-## CSV export flow
-
-`GET /api/admin/qr-tokens/export` — `src/app/api/admin/qr-tokens/export/route.ts`
-
-- Requires ADMIN role (DB-backed via `getCurrentUser()`).
-- Accepts `?status=` and `?batch=` filter params (same filters as the UI).
-- Streams output via `ReadableStream` in 500-row cursor-based chunks to avoid loading all tokens into memory.
-- Cursor ordering: `(createdAt ASC, id ASC)` — deterministic across pages.
-- Header emitted once; rows streamed incrementally.
-- Client disconnect handled via the stream `cancel()` callback.
-- `Cache-Control: no-store` set on the response.
-
----
-
-## Product image storage flow
+## Product image upload and display flow
 
 Upload path (server-only):
 
@@ -323,13 +335,85 @@ deleteProductImage()
   └── storage.remove(objectPath)    ← best-effort after DB succeeds
 ```
 
-Storage client: `src/lib/supabase-server.ts` — `getSupabaseAdmin()`. **Never import from a client component.**
+Reorder path:
+```
+reorderProductImages(productId, orderedIds[])
+  │
+  └── prisma.$transaction: updates sortOrder to 0, 1, 2… for each id in sequence
+```
+
+**Primary image:** The `ProductImage` row with the lowest `sortOrder` is the primary/display image. `reorderProductImages` normalizes sort orders to `0, 1, 2…` on every reorder.
+
+**Admin product list:** fetches `images: { take: 1, orderBy: { sortOrder: 'asc' } }` — one image per product, no N+1.
+
+**Product details UI:** `ProductImages` component (`product-images.tsx`) shows a multi-image queue picker with per-image type assignment, sequential upload, reorder arrows, and delete. First image is labeled "Primary".
+
+**Mobile API:** Both `imageUrl` and `primaryImageUrl` fields are included in the package payload (backward compatibility).
+
+Storage client: `src/lib/supabase-server.ts` — `getSupabaseAdmin()`. Guarded by `"server-only"` import sentinel. **Never import from a client component.**
 
 ---
 
-## Mobile API endpoints
+## Supabase server/storage boundary
 
-All routes require `x-api-key: <MOBILE_API_KEY>` header. Key comparison uses `crypto.timingSafeEqual`. See `docs/API.md` for full spec.
+`src/lib/supabase-server.ts`:
+- Imports `"server-only"` — causes a hard build error if accidentally imported in a client component.
+- Validates `NEXT_PUBLIC_SUPABASE_URL` with `new URL()` and rejects non-http/https protocols on initialization.
+- Caches the SupabaseClient singleton in module scope (one client per server process).
+- Exports `PRODUCT_IMAGES_BUCKET = "product-images"`.
+- Exports `getSupabaseAdmin()` and `productImagePublicUrl(path)`.
+
+The `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security. It must never appear in `NEXT_PUBLIC_*` or client-component imports.
+
+---
+
+## CSV import flow
+
+Entry: `src/app/(admin)/admin/qr-tokens/import/import-actions.ts` (thin Server Action wrapper)
+
+Core logic: `src/lib/server/import-qr-tokens.ts` → `processQRTokenImport()`
+
+```
+CSV text
+  │
+  ├── PapaParse (header mode or flat mode)
+  ├── normalizeToken() + isValidTokenFormat() — mark invalid
+  ├── File-level deduplication (Set)
+  ├── DB-level deduplication (findMany)
+  └── $transaction (atomic):
+        ├── QRTokenBatch.create()
+        ├── QRToken.createMany({ skipDuplicates: true })
+        ├── delete empty batch if count === 0
+        ├── update batch.quantity if concurrent dup reduced count
+        └── writeAuditLog(…, tx)    ← audit inside same transaction
+
+Invariant enforced (throws if violated):
+  totalRows === invalid + skippedDuplicate + inserted
+```
+
+**Concurrency protection:** `createMany({ skipDuplicates: true })` relies on the DB unique constraint on `QRToken.token` to atomically skip tokens that arrive concurrently from another import. The returned `count` is used to reconcile `batch.quantity`.
+
+Test: `npm run test:qr-import` (`scripts/test-qr-token-import-integrity.ts`)
+
+---
+
+## CSV export flow
+
+`GET /api/admin/qr-tokens/export` — `src/app/api/admin/qr-tokens/export/route.ts`
+
+- Requires ADMIN role (DB-backed via `getCurrentUser()`).
+- Accepts `?status=` and `?batch=` filter params (same filters as the UI).
+- Streams output via `ReadableStream` in 500-row cursor-based chunks to avoid loading all tokens into memory.
+- Cursor ordering: `(createdAt ASC, id ASC)` — deterministic across pages.
+- Header emitted once; rows streamed incrementally.
+- Client disconnect handled via the stream `cancel()` callback.
+- `Cache-Control: no-store` set on the response.
+
+---
+
+## Mobile API flow
+
+All routes require `x-api-key: <MOBILE_API_KEY>` header. Key comparison uses `crypto.timingSafeEqual` (constant-time). See `docs/API.md` for full spec.
 
 All mobile route responses include `Cache-Control: no-store`.
 
@@ -339,7 +423,7 @@ File: `src/app/api/qr/[token]/route.ts`
 
 - Awaits `params` (Next.js 16 async params).
 - Guards `decodeURIComponent` with try/catch — returns 400 on malformed percent-encoding.
-- Returns status-specific JSON: AVAILABLE (minimal), VOIDED/REPLACED (message), ASSIGNED/ACTIVATED (full package payload with steps, products, and image URL).
+- Returns status-specific JSON: AVAILABLE (minimal), VOIDED/REPLACED (message), ASSIGNED/ACTIVATED (full package payload with steps, products, `imageUrl`, and `primaryImageUrl`).
 - No stack traces in error responses.
 
 ### POST `/api/qr/activate`
@@ -350,6 +434,29 @@ File: `src/app/api/qr/activate/route.ts`
 - Idempotent: ACTIVATED tokens return 200 without re-running side effects.
 - Race guard: `updateMany({ where: { id, status: "ASSIGNED" } })`.
 - On success (inside `$transaction`): sets `QRToken.status = ACTIVATED`, sets `Package.status = ACTIVATED`, creates `ActivationEvent`, writes `AuditLog`.
+
+---
+
+## Admin shell components
+
+| Component | File | Notes |
+|---|---|---|
+| Desktop sidebar | `(admin)/layout.tsx` | sticky, 17rem wide, aomiLogo.svg, nav links, user card, logout |
+| Mobile top bar | `src/components/admin-mobile-nav.tsx` | sticky h-16, hamburger button, aomiLogo.svg |
+| Mobile nav Sheet | `src/components/admin-mobile-nav.tsx` | 19rem left Sheet, aomiLogo.svg header, nav links, logout |
+| Nav links | `src/components/admin-nav.tsx` | shared between desktop and mobile sheet |
+| Logout button | `src/components/auth/logout-button.tsx` | `w-full justify-start` — matches sidebar nav item alignment |
+| Login page | `src/components/auth/login-form.tsx` | two-panel card; aomiLogo.svg in both desktop left panel and mobile card header |
+
+**Branding rule:** All shell and authentication branding locations use only `public/logo/aomiLogo.svg`. The previous Lucide `QrCode` icon + colored background has been removed from all locations. `next/image` with `priority` prop is used for all above-the-fold logo instances (resolves LCP warning).
+
+---
+
+## Seller shell components
+
+| Component | File | Notes |
+|---|---|---|
+| Seller header | `(seller)/layout.tsx` | h-16, aomiLogo.svg link, Home + Assign nav, email + logout |
 
 ---
 
@@ -364,6 +471,10 @@ File: `src/app/api/qr/activate/route.ts`
 - Depends on the clamped `page` value derived from `totalCount`, so it must wait for Phase 1.
 
 Before optimization: 2 phases (1 then 4). After: 2 phases (4 then 1) — batches, statsGroup, and detailedToken no longer wait behind totalCount.
+
+**Filter-aware count:** The primary count card on the QR Tokens page reflects the current filter (status + batch + search). Secondary status-breakdown cards are global (unfiltered) and labeled "Across all batches".
+
+**Batch filter removed from sidebar:** `/admin/batches` redirects to `/admin/qr-tokens`. Batch data is a filter and column on the QR Tokens page only.
 
 ---
 
@@ -400,6 +511,20 @@ Products, diagnoses, routine types, and routines are small catalogs (expected te
 
 ---
 
+## Test scripts
+
+| Script | Command | What it tests |
+|---|---|---|
+| QR import integrity | `npm run test:qr-import` | Import accounting, deduplication, batch creation, concurrency |
+| Core correctness | `npm run test:correctness` | Auth, data invariants, Phase 1 |
+| API hardening + upload | `npm run test:phase2` | API key guard, upload validation, streaming |
+| CSV export streaming | `npm run test:export` | Streaming export chunking logic |
+| Replacement rules | `npm run test:replacement-rules` | 14 assertions, cases A–N: stepType invariants, blocking, audit |
+| Image management | `npm run test:images` | 14 assertions: magic bytes, MIME gating, sort order, primary image, N+1 avoidance |
+| Replacement rule audit | `npm run audit:replacement-rules` | Dry-run — detects pre-existing DB violations, no mutations |
+
+---
+
 ## Critical invariants
 
 1. **Token uniqueness** — `QRToken.token` has a unique DB constraint. Never bypass.
@@ -407,9 +532,25 @@ Products, diagnoses, routine types, and routines are small catalogs (expected te
 3. **Assignment race guard** — `updateMany` with status precondition; reject if count=0.
 4. **Activation race guard** — same pattern for ASSIGNED→ACTIVATED.
 5. **Package snapshot** — `PackageProduct` rows are a point-in-time snapshot; `productId` is a loose FK by design.
-6. **Service key confinement** — `SUPABASE_SERVICE_ROLE_KEY` used only in `src/lib/supabase-server.ts`. Never in client components or `NEXT_PUBLIC_*`.
+6. **Service key confinement** — `SUPABASE_SERVICE_ROLE_KEY` used only in `src/lib/supabase-server.ts`. Never in client components or `NEXT_PUBLIC_*`. Enforced by `"server-only"` import sentinel.
 7. **Batch quantity accuracy** — batch quantity must equal its actual token count after concurrent imports.
 8. **Void sync** — voiding a QRToken also sets the linked Package.status to VOIDED in the same transaction.
+9. **Replacement stepType invariant** — `ProductReplacement.stepType` must equal both `source.stepType` and `replacement.stepType`. The `addReplacementRule` Server Action derives `stepType` from the source product and rejects any candidate with a different `stepType`. Changing a product's `stepType` is blocked when it has any outgoing or incoming replacement rules. Run `npm run audit:replacement-rules` to detect pre-existing violations.
+10. **Primary image** — the primary (display) image for a product is the `ProductImage` row with the lowest `sortOrder`. `reorderProductImages` normalizes sort orders to `0, 1, 2…` on every reorder. The mobile API exposes this as both `imageUrl` and `primaryImageUrl` (both fields are present for backward compatibility).
+11. **Package/Token lifecycle sync** — `Package.status` must always match the status of its linked `QRToken`. Transitions happen in the same Prisma `$transaction`.
+12. **Audit atomicity** — `writeAuditLog()` accepts an optional Prisma transaction (`tx`) parameter. Callers that need audit records to roll back with the parent operation must pass `tx`. The import and activation flows both do this.
+
+---
+
+## Performance-sensitive queries
+
+| Query | Location | Notes |
+|---|---|---|
+| Products list primary image | `admin/products/page.tsx` | `images: { take: 1, orderBy: { sortOrder: 'asc' } }` — prevents N+1 |
+| QR token list + count | `admin/qr-tokens/page.tsx` | Parallel Phase 1 (4 queries concurrent), then Phase 2 (1 query) |
+| Token search | `admin/qr-tokens/page.tsx` | `contains` substring — adequate for current scale; needs `pg_trgm` at ~100k+ |
+| CSV export stream | `api/admin/qr-tokens/export/route.ts` | 500-row cursor chunks — avoids full table in memory |
+| Replacement candidates | `admin/products/[id]/page.tsx` | Filtered by `stepType` and `active=true` before send |
 
 ---
 
@@ -422,11 +563,13 @@ Reading these files gives ~80% of the system's behavior:
 | `prisma/schema.prisma` | All models, relations, constraints, indexes |
 | `src/lib/server/current-user.ts` | DB-backed auth revalidation used by all auth helpers |
 | `src/lib/server/import-qr-tokens.ts` | Full import pipeline with invariants |
-| `src/app/(seller)/seller/assign/actions.ts` | Assignment race guard and package creation |
+| `src/app/(seller)/seller/assign/actions.ts` | Assignment race guard, package creation, and diagnosis integrity |
 | `src/app/api/qr/activate/route.ts` | Activation race guard and full side-effect chain |
-| `src/app/api/qr/[token]/route.ts` | Mobile token lookup and payload shape |
+| `src/app/api/qr/[token]/route.ts` | Mobile token lookup, payload shape, primaryImageUrl |
 | `src/lib/auth-helpers.ts` | `requireAuth` / `requireRole` / `requireAnyRole` — used everywhere |
-| `src/lib/supabase-server.ts` | Storage client boundary |
+| `src/lib/supabase-server.ts` | Storage client boundary — "server-only" enforced |
+| `src/lib/audit.ts` | Audit log writer — accepts optional tx for atomicity |
+| `src/lib/server/image-signatures.ts` | Magic-byte MIME detection for uploaded images |
 
 ---
 
@@ -434,13 +577,16 @@ Reading these files gives ~80% of the system's behavior:
 
 | Boundary | Rule |
 |---|---|
-| Client/Server | `getSupabaseAdmin()` never imported in client components |
+| Client/Server | `getSupabaseAdmin()` never imported in client components — `"server-only"` sentinel enforces this |
 | Client/Server | `requireRole()` / `requireAuth()` / `requireAnyRole()` only in Server Actions and Route Handlers |
 | Client/Server | `getCurrentUser()` is server-only (reads DB + session) |
 | API/Mobile | All `/api/qr/*` routes gated by `checkMobileApiKey()` before any logic |
 | Generated code | `src/generated/prisma/` — read-only; regenerated by `npm run db:generate` |
 | Migration history | `prisma/migrations/` — append-only; never edit existing files |
 | Secrets | `.env` / `.env.local` — never committed; never logged; never in `NEXT_PUBLIC_*` |
+| Branding | Only `public/logo/aomiLogo.svg` used in all shell/auth locations — no QR icon |
+| Image upload | Server Actions only — no client-to-Supabase direct upload |
+| Audit log | Must be inside the same `$transaction` for import and activation flows |
 
 ---
 
@@ -449,9 +595,9 @@ Reading these files gives ~80% of the system's behavior:
 | Path | How to regenerate |
 |---|---|
 | `src/generated/prisma/` | `npm run db:generate` (runs `prisma generate`) |
-| `graphify-out/graph.json` | `/graphify` command |
-| `graphify-out/graph.html` | `/graphify` command |
-| `graphify-out/GRAPH_REPORT.md` | `/graphify` command |
+| `graphify-out/graph.json` | `graphify update .` or `/graphify` command |
+| `graphify-out/graph.html` | `graphify update .` or `/graphify` command |
+| `graphify-out/GRAPH_REPORT.md` | `graphify update .` or `/graphify` command |
 
 ---
 
@@ -466,7 +612,7 @@ Reading these files gives ~80% of the system's behavior:
 | `docs/SETUP.md` | Local dev setup and env vars |
 | `docs/DEPLOYMENT.md` | Vercel + Supabase deployment guide |
 | `docs/QR_TOKEN_LIFECYCLE.md` | QR state machine reference with transition table |
-| `graphify-out/GRAPH_REPORT.md` | Auto-generated graph report (communities, god nodes) |
+| `graphify-out/GRAPH_REPORT.md` | Auto-generated graph report (2026-06-14: 335 nodes, 274 edges, 113 communities) |
 
 ---
 
@@ -475,10 +621,10 @@ Reading these files gives ~80% of the system's behavior:
 If `graphify-out/graph.json` exists, query the knowledge graph before broad scans:
 
 ```bash
-# From the project root — requires the graphify skill (/graphify in Claude Code)
-/graphify query "QR token assignment flow"
-/graphify path "requireRole" "voidToken"
-/graphify explain "processQRTokenImport"
+# From the project root — requires graphify installed at /Library/Frameworks/Python.framework/...
+graphify query "QR token assignment flow"
+graphify path "requireRole" "voidToken"
+graphify explain "processQRTokenImport"
 ```
 
 **When to refresh Graphify:**
@@ -486,5 +632,8 @@ If `graphify-out/graph.json` exists, query the knowledge graph before broad scan
 - After adding new routes or Server Actions.
 - After significant schema or domain model changes.
 - After renaming or reorganizing `src/lib/` files.
+- After substantial UI shell/component restructuring.
+
+Run `graphify update .` from the project root. The command is cache-assisted and only re-extracts changed files.
 
 Do not refresh for UI-only changes, minor bug fixes, or dependency updates.

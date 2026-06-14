@@ -45,6 +45,13 @@ export default async function ProductsPage({
         }
       : undefined,
     orderBy: [{ stepType: "asc" }, { name: "asc" }],
+    include: {
+      images: {
+        orderBy: { sortOrder: "asc" },
+        take: 1,
+        select: { imageUrl: true },
+      },
+    },
   })
 
   const editItem = edit
@@ -125,6 +132,7 @@ export default async function ProductsPage({
             <table className="data-table min-w-[860px]">
               <thead>
                 <tr>
+                  <th className="w-12" aria-label="Thumbnail" />
                   <th className="min-w-60">
                     Name
                   </th>
@@ -151,6 +159,18 @@ export default async function ProductsPage({
                     key={p.id}
                     className="transition-colors"
                   >
+                    <td>
+                      {p.images[0] ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.images[0].imageUrl}
+                          alt=""
+                          className="size-10 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="size-10 rounded-lg bg-muted" aria-hidden />
+                      )}
+                    </td>
                     <td className="font-medium whitespace-normal">
                       <Link
                         href={`/admin/products/${p.id}`}

@@ -5,24 +5,12 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { requireRole } from "@/lib/auth-helpers"
 import { writeAuditLog } from "@/lib/audit"
-import type { StepType } from "@/generated/prisma/client"
-
-const STEP_TYPES = [
-  "CLEANSER",
-  "TONER",
-  "SERUM",
-  "CREAM",
-  "SUNSCREEN",
-  "EXFOLIANT",
-  "TREATMENT",
-  "MOISTURIZER",
-] as const
 
 export type ReplacementActionState = { error?: string; ok?: boolean }
 
+// stepType is not accepted from the form — it is derived from the source product.
 const AddSchema = z.object({
   replacementProductId: z.string().min(1, "Select a replacement product"),
-  stepType: z.enum(STEP_TYPES),
 })
 
 export async function addReplacementRule(
@@ -34,23 +22,39 @@ export async function addReplacementRule(
 
   const parsed = AddSchema.safeParse({
     replacementProductId: formData.get("replacementProductId"),
-    stepType: formData.get("stepType"),
   })
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" }
   }
 
-  const { replacementProductId, stepType } = parsed.data
+  const { replacementProductId } = parsed.data
 
   if (replacementProductId === sourceProductId) {
     return { error: "A product cannot replace itself" }
   }
 
-  const replacement = await prisma.product.findUnique({
-    where: { id: replacementProductId },
-    select: { id: true, name: true },
-  })
-  if (!replacement) return { error: "Replacement product not found" }
+  // Load both products in parallel. stepType is derived from the source — never
+  // accepted from the client — so both products must share the same stepType.
+  const [sourceProduct, replacementProduct] = await Promise.all([
+    prisma.product.findUnique({
+      where: { id: sourceProductId },
+      select: { id: true, stepType: true },
+    }),
+    prisma.product.findUnique({
+      where: { id: replacementProductId },
+      select: { id: true, name: true, stepType: true },
+    }),
+  ])
+
+  if (!sourceProduct) return { error: "Source product not found" }
+  if (!replacementProduct) return { error: "Replacement product not found" }
+
+  // Invariant: source, replacement, and rule must all share the same stepType.
+  if (replacementProduct.stepType !== sourceProduct.stepType) {
+    return {
+      error: `Replacement product must have the same step type as this product (${sourceProduct.stepType})`,
+    }
+  }
 
   const existing = await prisma.productReplacement.findUnique({
     where: {
@@ -67,7 +71,8 @@ export async function addReplacementRule(
     data: {
       sourceProductId,
       replacementProductId,
-      stepType: stepType as StepType,
+      // stepType is always sourced from the source product, not the form.
+      stepType: sourceProduct.stepType,
     },
   })
 
@@ -76,7 +81,7 @@ export async function addReplacementRule(
     "CREATE",
     "ProductReplacement",
     rule.id,
-    { sourceProductId, replacementProductId, stepType }
+    { sourceProductId, replacementProductId, stepType: sourceProduct.stepType }
   )
 
   revalidatePath(`/admin/products/${sourceProductId}`)

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { signIn } from "next-auth/react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { AlertCircle, ArrowRight, QrCode, ShieldCheck, Sparkles } from "lucide-react"
+import { AlertCircle, ArrowRight, ShieldCheck, Sparkles } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 
 export default function LoginForm() {
@@ -49,13 +50,14 @@ export default function LoginForm() {
       <div className="relative grid w-full max-w-4xl overflow-hidden rounded-3xl border border-border/70 bg-card shadow-lg md:grid-cols-[1fr_0.9fr]">
         <section className="hidden min-h-[34rem] flex-col justify-between bg-sidebar p-8 text-sidebar-foreground md:flex">
           <div className="flex items-center gap-3">
-            <span className="flex size-11 items-center justify-center rounded-2xl bg-sidebar-primary text-sidebar-primary-foreground">
-              <QrCode className="size-5" />
-            </span>
-            <div>
-              <p className="font-semibold">AOMI Kit</p>
-              <p className="text-xs text-sidebar-foreground/50">QR Manager</p>
-            </div>
+            <Image
+              src="/logo/aomiLogo.svg"
+              alt="AOMI"
+              width={100}
+              height={30}
+              className="h-7 w-auto object-contain"
+              priority
+            />
           </div>
           <div className="max-w-sm space-y-4">
             <span className="inline-flex items-center gap-2 rounded-full bg-sidebar-accent px-3 py-1.5 text-xs font-medium">
@@ -77,8 +79,15 @@ export default function LoginForm() {
 
         <Card className="w-full rounded-none bg-card py-8 shadow-none ring-0 sm:px-6 md:px-8">
           <CardHeader>
-            <div className="mb-4 flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground md:hidden">
-              <QrCode className="size-5" />
+            <div className="mb-4 md:hidden">
+              <Image
+                src="/logo/aomiLogo.svg"
+                alt="AOMI"
+                width={100}
+                height={30}
+                className="h-7 w-auto object-contain"
+                priority
+              />
             </div>
             <CardTitle className="text-2xl font-semibold tracking-tight">Welcome back</CardTitle>
             <CardDescription>Sign in to continue to AOMI Kit QR Manager.</CardDescription>

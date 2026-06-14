@@ -169,14 +169,28 @@ Run `npm run test:qr-import` after changing import, token, batch, or lifecycle c
 - Secondary status cards are global and labeled accordingly.
 - Do not load the complete QR-token table into the browser.
 
+## Replacement rules
+
+- `ProductReplacement.stepType` must equal both `source.stepType` and `replacement.stepType`.
+- `addReplacementRule` derives `stepType` from the source product — never from form data.
+- Reject any replacement candidate whose `stepType` differs from the source product's.
+- Changing a product's `stepType` is blocked when it has outgoing or incoming replacement rules.
+- The admin must remove all rules before the step type can be changed.
+- Run `npm run audit:replacement-rules` to detect pre-existing stepType violations in the DB.
+- Run `npm run test:replacement-rules` after changes to replacement-rule logic.
+
 ## Product catalog and storage
 
 - Products have SKU, step type, category, description, status, images, and replacements.
 - Advanced image and replacement management lives on the product detail page.
+- Primary image = the `ProductImage` row with the lowest `sortOrder`. The `reorderProductImages`
+  action normalizes all sort orders to `0, 1, 2…` on every reorder.
+- The products list page fetches `images: { take: 1, orderBy: { sortOrder: 'asc' } }` to avoid N+1.
 - Storage bucket: `product-images`.
 - Public read does not mean public write.
 - Upload/delete operations must remain server-authorized.
 - Enforce allowed MIME types and size limits.
+- `NEXT_PUBLIC_SUPABASE_URL` is validated with `new URL(...)` at client creation — only http/https accepted.
 - Never expose the Supabase secret/service key to client code.
 - `NEXT_PUBLIC_*` values may be browser-visible; secret values may not.
 

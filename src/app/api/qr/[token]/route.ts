@@ -141,6 +141,7 @@ export async function GET(
             category: p?.category ?? null,
             functionDescription: p?.functionDescription ?? null,
             imageUrl: imageUrlFor(sp.productId),
+            primaryImageUrl: imageUrlFor(sp.productId),
           },
         }
       }),

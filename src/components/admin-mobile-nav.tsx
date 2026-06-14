@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Menu, QrCode } from "lucide-react"
+import Image from "next/image"
+import { Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet"
 import { AdminNavLinks } from "./admin-nav"
@@ -27,10 +28,13 @@ export function AdminMobileNav({ email }: AdminMobileNavProps) {
             <div className="space-y-6">
               <SheetHeader className="border-b border-sidebar-border px-2 pb-5 pt-2 text-left">
                 <SheetTitle className="flex items-center gap-3 text-base font-semibold text-sidebar-foreground">
-                  <span className="flex size-9 items-center justify-center rounded-2xl bg-sidebar-primary text-sidebar-primary-foreground">
-                    <QrCode className="size-4" />
-                  </span>
-                  AOMI Kit Admin
+                  <Image
+                    src="/logo/aomiLogo.svg"
+                    alt="AOMI"
+                    width={100}
+                    height={30}
+                    className="h-6 w-auto object-contain"
+                  />
                 </SheetTitle>
                 <SheetDescription className="sr-only">
                   Navigation menu for admin section.
@@ -49,8 +53,14 @@ export function AdminMobileNav({ email }: AdminMobileNavProps) {
           </SheetContent>
         </Sheet>
         <span className="flex items-center gap-2 text-sm font-semibold">
-          <QrCode className="size-4 text-primary" />
-          AOMI Kit Admin
+          <Image
+            src="/logo/aomiLogo.svg"
+            alt="AOMI"
+            width={100}
+            height={30}
+            className="h-4 w-auto object-contain"
+            priority
+          />
         </span>
       </div>
     </header>

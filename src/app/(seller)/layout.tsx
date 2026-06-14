@@ -1,7 +1,8 @@
 import { requireAnyRole } from "@/lib/auth-helpers"
 import LogoutButton from "@/components/auth/logout-button"
 import Link from "next/link"
-import { Home, QrCode, ScanLine } from "lucide-react"
+import Image from "next/image"
+import { Home, ScanLine } from "lucide-react"
 
 export default async function SellerLayout({
   children,
@@ -15,10 +16,14 @@ export default async function SellerLayout({
       <header className="sticky top-0 z-30 border-b border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link href="/seller" className="flex items-center gap-2.5 font-semibold">
-            <span className="flex size-9 items-center justify-center rounded-2xl bg-sidebar-primary text-sidebar-primary-foreground">
-              <QrCode className="size-4" />
-            </span>
-            AOMI Kit
+            <Image
+              src="/logo/aomiLogo.svg"
+              alt="AOMI"
+              width={100}
+              height={30}
+              className="h-5 w-auto object-contain"
+              priority
+            />
           </Link>
           <nav aria-label="Seller navigation" className="flex items-center gap-1">
             <Link href="/seller" className="flex items-center gap-2 rounded-full px-3 py-2 text-sm hover:bg-sidebar-accent">

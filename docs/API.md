@@ -67,14 +67,17 @@ Look up a token and, when assigned/activated, return its full package payload.
         "sku": "AOMI-CLN-001",
         "category": "Cleanser",
         "functionDescription": "…",
-        "imageUrl": "https://…/product-images/prod_abc/front.jpg"
+        "imageUrl": "https://…/product-images/prod_abc/front.jpg",
+        "primaryImageUrl": "https://…/product-images/prod_abc/front.jpg"
       }
     }
   ]
 }
 ```
 
-`imageUrl` is the product's FRONT image (or first available), or `null`.
+`imageUrl` and `primaryImageUrl` both point to the product's primary image (FRONT
+type or lowest `sortOrder`), or `null` if no image exists. Both fields are present
+for backward compatibility; prefer `primaryImageUrl` in new client code.
 
 ### Errors
 - `404` — token not found

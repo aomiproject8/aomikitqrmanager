@@ -63,7 +63,13 @@ export async function uploadProductImage(
   const ext = mimeToExt[detectedMime] ?? "bin"
   const objectPath = `${productId}/${crypto.randomUUID()}.${ext}`
 
-  const supabase = getSupabaseAdmin()
+  let supabase
+  try {
+    supabase = getSupabaseAdmin()
+  } catch {
+    return { error: "Storage is not configured. Contact your administrator." }
+  }
+
   const { error: uploadError } = await supabase.storage
     .from(PRODUCT_IMAGES_BUCKET)
     .upload(objectPath, arrayBuffer, {
@@ -72,7 +78,19 @@ export async function uploadProductImage(
     })
 
   if (uploadError) {
-    return { error: `Upload failed: ${uploadError.message}` }
+    // Classify known failure modes to avoid leaking internal storage details.
+    const msg = uploadError.message ?? ""
+    if (msg.includes("Bucket not found") || msg.includes("not found")) {
+      return { error: "Storage bucket is not configured. Contact your administrator." }
+    }
+    if (
+      msg.includes("unauthorized") ||
+      msg.includes("Unauthorized") ||
+      msg.includes("403")
+    ) {
+      return { error: "Storage access denied. Contact your administrator." }
+    }
+    return { error: "Upload failed. Please try again." }
   }
 
   const imageUrl = productImagePublicUrl(objectPath)

@@ -303,8 +303,8 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
                   className="rounded-3xl border border-border bg-muted/20 p-4"
                 >
                   <div className="mb-2 flex items-center gap-2">
-                    <span className="flex size-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                      Step {s.stepNumber}
+                    <span className="flex aspect-square size-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold leading-none text-primary-foreground">
+                      {s.stepNumber}
                     </span>
                     <Badge variant="secondary">{s.stepType}</Badge>
                   </div>
@@ -316,28 +316,44 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
                       No products available for this step.
                     </p>
                   ) : (
-                    <Select
-                      value={selections[s.stepId] ?? ""}
-                      onValueChange={(v) =>
-                        setSelections((prev) => ({ ...prev, [s.stepId]: v }))
-                      }
-                      disabled={pending}
-                    >
-                      <SelectTrigger className="w-full sm:w-80">
-                        <SelectValue placeholder="Select product…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {s.options.map((o) => (
-                          <SelectItem key={o.id} value={o.id}>
-                            {o.name}
-                            {o.id === s.defaultProductId ? " (default)" : ""}
-                            {o.isReplacement && o.id !== s.defaultProductId
-                              ? " (alt)"
-                              : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-3">
+                      {(() => {
+                        const selectedId = selections[s.stepId] ?? s.defaultProductId
+                        const selected = s.options.find((o) => o.id === selectedId)
+                        return selected?.primaryImageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={selected.primaryImageUrl}
+                            alt=""
+                            className="size-10 shrink-0 rounded-lg object-cover ring-1 ring-foreground/10"
+                          />
+                        ) : (
+                          <div className="size-10 shrink-0 rounded-lg bg-muted ring-1 ring-foreground/10" aria-hidden />
+                        )
+                      })()}
+                      <Select
+                        value={selections[s.stepId] ?? ""}
+                        onValueChange={(v) =>
+                          setSelections((prev) => ({ ...prev, [s.stepId]: v }))
+                        }
+                        disabled={pending}
+                      >
+                        <SelectTrigger className="w-full sm:w-80">
+                          <SelectValue placeholder="Select product…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {s.options.map((o) => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.name}
+                              {o.id === s.defaultProductId ? " (default)" : ""}
+                              {o.isReplacement && o.id !== s.defaultProductId
+                                ? " (alt)"
+                                : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
                 </li>
               ))}

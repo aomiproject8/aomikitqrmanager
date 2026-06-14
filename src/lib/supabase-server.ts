@@ -26,6 +26,21 @@ export function getSupabaseAdmin(): SupabaseClient {
     );
   }
 
+  // Validate URL structure so misconfiguration surfaces as a clear error.
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL is not a valid URL — check your environment configuration",
+    );
+  }
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL must use http or https protocol",
+    );
+  }
+
   cached = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

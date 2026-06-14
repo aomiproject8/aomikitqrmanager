@@ -110,6 +110,30 @@ export async function updateProduct(
     }
   }
 
+  // Changing step type is blocked when replacement rules exist — rules record
+  // the step type they apply to, so a type change would produce invalid data.
+  // The admin must remove all rules before changing the step type.
+  const current = await prisma.product.findUnique({
+    where: { id },
+    select: { stepType: true },
+  })
+  if (current && current.stepType !== (parsed.data.stepType as StepType)) {
+    const ruleCount = await prisma.productReplacement.count({
+      where: {
+        OR: [{ sourceProductId: id }, { replacementProductId: id }],
+      },
+    })
+    if (ruleCount > 0) {
+      return {
+        errors: {
+          stepType: [
+            `Cannot change step type: this product has ${ruleCount} replacement rule${ruleCount !== 1 ? "s" : ""}. Remove all replacement rules first.`,
+          ],
+        },
+      }
+    }
+  }
+
   await prisma.product.update({
     where: { id },
     data: {
