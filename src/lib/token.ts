@@ -1,9 +1,9 @@
 import { customAlphabet } from "nanoid"
 
 // Unambiguous uppercase alphabet (no 0/O/1/I) for human-readable tokens.
-const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-const RANDOM_LEN = 6
-const nano = customAlphabet(ALPHABET, RANDOM_LEN)
+export const TOKEN_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+export const TOKEN_RANDOM_SUFFIX_LENGTH = 6
+const nano = customAlphabet(TOKEN_ALPHABET, TOKEN_RANDOM_SUFFIX_LENGTH)
 
 export const DEFAULT_PREFIX = "AOMI-KIT"
 

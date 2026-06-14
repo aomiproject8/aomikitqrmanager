@@ -24,7 +24,8 @@ Primary roles:
 
 - Next.js 16 App Router with React 19 and TypeScript.
 - Server Components by default; Client Components only when interactivity requires them.
-- Auth.js/NextAuth v5 credentials authentication with JWT sessions.
+- Auth.js/NextAuth v5 credentials authentication with JWT sessions and an
+  explicit 12-hour maximum session age.
 - Prisma 7 using `@prisma/adapter-pg`.
 - PostgreSQL hosted by Supabase.
 - Supabase Storage for product images.
@@ -109,6 +110,8 @@ Inspect the route tree before adding or renaming routes.
 - SELLER assignment uses `requireAnyRole("SELLER", "ADMIN")` — both roles may use the flow.
 - Never rely only on hidden buttons or client-side route guards.
 - Do not weaken session, middleware/proxy, or credential validation.
+- Preserve the 12-hour JWT maximum age and the per-request `getCurrentUser()`
+  database revalidation that immediately rejects deleted or inactive users.
 - Do not log passwords, hashes, secrets, tokens, or connection strings.
 
 ## Prisma conventions
@@ -127,7 +130,11 @@ Inspect the route tree before adding or renaming routes.
 ## QR-token invariants
 
 - Token values are globally unique.
+- Generated values use `PREFIX-XXXXXX`: a six-character nanoid suffix from the
+  unambiguous 32-character alphabet. Keep cryptographically secure randomness.
 - A token's original batch ownership is immutable.
+- Generation-format changes must remain backward compatible with existing and
+  CSV-imported token values; never rewrite persisted tokens for formatting.
 - Existing tokens must never be reassigned by import.
 - Token status changes must follow the implemented lifecycle.
 - Do not arbitrarily edit lifecycle timestamps.
@@ -222,6 +229,12 @@ Run `npm run test:qr-import` after changing import, token, batch, or lifecycle c
 - Avoid `any`; use generated Prisma and domain types.
 - Validate external input with Zod or established validators.
 - Keep server-only secrets and helpers out of Client Components.
+- Privileged entry points that read server secrets or enforce server-side
+  validation must import `"server-only"`. Current boundaries include
+  `mobile-api.ts`, `server/env.ts`, `supabase-server.ts`, and
+  `server/image-signatures.ts`.
+- When standalone tests need pure logic from a server-only module, extract a
+  dependency-free helper and keep the privileged wrapper server-only.
 - Do not duplicate domain logic in pages, actions, and tests.
 - Use clear names instead of explanatory comments for obvious code.
 - Add comments only for non-obvious invariants or tradeoffs.
@@ -248,6 +261,14 @@ Run `npm run test:qr-import` after changing import, token, batch, or lifecycle c
 - Avoid broad deletion queries in tests.
 - Test cleanup must target exact run-specific records.
 - Do not run production cleanup from ad hoc scripts.
+
+## Prisma generation
+
+- The generated client lives in `src/generated/prisma/`.
+- Run `npm run db:generate` explicitly after dependency or schema changes.
+- This repository intentionally does not use a Prisma `postinstall` hook.
+- Deployment automation is responsible for generation before `npm run build`
+  when generated output is not already available.
 
 ## Git and change workflow
 

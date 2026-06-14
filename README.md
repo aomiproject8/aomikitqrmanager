@@ -10,23 +10,23 @@ mobile REST API that activated kits read from.
   `src/proxy.ts` in Next 16
 - **React 19**
 - **Prisma 7** with the `@prisma/adapter-pg` driver adapter (PostgreSQL)
-- **NextAuth v5** (Credentials provider, JWT sessions)
+- **NextAuth v5** (Credentials provider, JWT sessions with a 12-hour maximum age)
 - **Supabase** — Postgres database + Storage (product images)
 - **Tailwind CSS v4** + shadcn/ui components
 - **Zod** for validation
 
 ## Features
 
-| Area | Routes |
-| --- | --- |
-| Catalog | `/admin/products`, `/admin/diagnoses`, `/admin/routine-types` |
-| Product images | Upload/reorder/delete on the product edit page (Supabase Storage) |
-| Replacement rules | Managed on the product edit page |
-| Routines | `/admin/routines`, `/admin/routines/new`, `/admin/routines/[id]` |
-| QR tokens | `/admin/qr-tokens`, `…/generate`, `…/import`, `/admin/batches` |
-| Token CSV export | `/api/admin/qr-tokens/export` |
-| Seller assignment | `/seller`, `/seller/assign` |
-| Mobile API | `GET /api/qr/[token]`, `POST /api/qr/activate` |
+| Area              | Routes                                                            |
+| ----------------- | ----------------------------------------------------------------- |
+| Catalog           | `/admin/products`, `/admin/diagnoses`, `/admin/routine-types`     |
+| Product images    | Upload/reorder/delete on the product edit page (Supabase Storage) |
+| Replacement rules | Managed on the product edit page                                  |
+| Routines          | `/admin/routines`, `/admin/routines/new`, `/admin/routines/[id]`  |
+| QR tokens         | `/admin/qr-tokens`, `…/generate`, `…/import`, `/admin/batches`    |
+| Token CSV export  | `/api/admin/qr-tokens/export`                                     |
+| Seller assignment | `/seller`, `/seller/assign`                                       |
+| Mobile API        | `GET /api/qr/[token]`, `POST /api/qr/activate`                    |
 
 ## Quick start
 
@@ -56,6 +56,9 @@ Sign in at `/login`. Admins land on `/admin`, sellers on `/seller`.
 - `npm run test:correctness` — auth + data invariant tests (requires DB)
 - `npm run test:phase2` — API hardening + upload unit tests
 - `npm run test:export` — CSV export streaming unit tests
+- `npm run test:replacement-rules`
+- `npm run test:images`
+- `npm run audit:replacement-rules`
 
 ## Project notes
 
@@ -65,8 +68,16 @@ Sign in at `/login`. Admins land on `/admin`, sellers on `/seller`.
   `requireAnyRole("SELLER", "ADMIN")`. Both roles may use the assignment flow.
 - QR token state transitions use `updateMany` with a status guard so concurrent
   assignment/activation cannot clobber each other.
-- The Supabase service-role key is confined to `src/lib/supabase-server.ts` and
-  must never be imported from a client component.
+- Generated tokens use `PREFIX-XXXXXX`: six cryptographically secure random
+  characters from an unambiguous 32-character alphabet. Existing and imported
+  token values remain valid; generation does not rewrite stored tokens.
+- Privileged mobile API authentication, environment access, Supabase service
+  credentials, and server-side image validation are protected by
+  `import "server-only"` boundaries. Client Components must not reach them.
+- JWT sessions expire after 12 hours. Protected requests still re-query the
+  user record, so deleted or deactivated users are rejected immediately.
+- Prisma generation is explicit via `npm run db:generate`. This repository does
+  not define a `postinstall` hook; deployment automation must run generation.
 - `next-auth` is pinned to an exact beta version (`5.0.0-beta.31`). Migration
   to stable is a future controlled task.
 

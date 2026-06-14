@@ -32,6 +32,13 @@
  *   Z – HDR-002: GET route missing-key 401 has Cache-Control: no-store
  *  AA – HDR-002: POST route validation-error 400 has Cache-Control: no-store
  *  AB – HDR-002: POST route missing-key 401 has Cache-Control: no-store
+ *  AC – AUTH-003: JWT sessions explicitly expire after 12 hours
+ *  AD – SEC-004: privileged modules have real server-only sentinels
+ *  AE – SEC-004: Client Component dependency paths cannot reach privileged modules
+ *  AF – TOKEN-001: generated tokens use six secure random characters
+ *  AG – TOKEN-001: generated batches are format-valid and collision-free
+ *  AH – TOKEN-001: legacy/imported token validation remains compatible
+ *  AI – OPS-002: Prisma generation stays explicit (no postinstall hook)
  *
  * Run:  npm run test:phase2
  */
@@ -39,13 +46,20 @@
 import "dotenv/config"
 import crypto from "crypto"
 import { z } from "zod"
-import { readFileSync } from "fs"
-import { join } from "path"
+import { readFileSync, readdirSync, statSync } from "fs"
+import { dirname, extname, join, resolve } from "path"
 import { NextRequest } from "next/server"
-import { detectMime, isAllowedImageMime } from "../src/lib/server/image-signatures"
+import { detectMime, isAllowedImageMime } from "../src/lib/image-signature-utils"
 import { checkMobileApiKey } from "../src/lib/mobile-api"
 import { GET as qrGet } from "../src/app/api/qr/[token]/route"
 import { POST as activatePost } from "../src/app/api/qr/activate/route"
+import { authConfig, SESSION_MAX_AGE_SECONDS } from "../src/auth.config"
+import {
+  generateTokens,
+  isValidTokenFormat,
+  TOKEN_ALPHABET,
+  TOKEN_RANDOM_SUFFIX_LENGTH,
+} from "../src/lib/token"
 
 // Inline replica of requireEnv — avoids importing env.ts which has
 // `import "server-only"` (incompatible with plain tsx execution).
@@ -222,6 +236,170 @@ assert(
 assert(
   !ActivateSchema.safeParse({ token: "ok", externalUserId: "x".repeat(201) }).success,
   "S – externalUserId > 200 chars rejected"
+)
+
+// ─── AUTH-003 / SEC-004 / TOKEN-001 / OPS-002: production hardening ─────────
+
+console.log("\n── Production hardening configuration ──")
+
+assert(
+  SESSION_MAX_AGE_SECONDS === 12 * 60 * 60,
+  "AC – session max age constant is exactly 12 hours"
+)
+assert(
+  authConfig.session?.strategy === "jwt",
+  "AC – JWT session strategy remains enabled"
+)
+assert(
+  authConfig.session?.maxAge === SESSION_MAX_AGE_SECONDS,
+  "AC – NextAuth session.maxAge uses the documented constant"
+)
+
+const projectRoot = resolve(__dirname, "..")
+const privilegedModules = [
+  "src/lib/mobile-api.ts",
+  "src/lib/server/image-signatures.ts",
+  "src/lib/supabase-server.ts",
+  "src/lib/server/env.ts",
+]
+
+for (const relativePath of privilegedModules) {
+  const source = readFileSync(resolve(projectRoot, relativePath), "utf-8")
+  assert(
+    source.includes('import "server-only"') ||
+      source.includes("import 'server-only'"),
+    `AD – ${relativePath} has a real server-only sentinel`
+  )
+}
+
+const sourceExtensions = [".ts", ".tsx"]
+const privilegedAbsolutePaths = new Set(
+  privilegedModules.map((path) => resolve(projectRoot, path))
+)
+
+function listSourceFiles(directory: string): string[] {
+  return readdirSync(directory).flatMap((entry) => {
+    const path = resolve(directory, entry)
+    return statSync(path).isDirectory()
+      ? listSourceFiles(path)
+      : sourceExtensions.includes(extname(path))
+        ? [path]
+        : []
+  })
+}
+
+function resolveSourceImport(fromFile: string, specifier: string): string | null {
+  if (!specifier.startsWith("@/") && !specifier.startsWith(".")) return null
+  const base = specifier.startsWith("@/")
+    ? resolve(projectRoot, "src", specifier.slice(2))
+    : resolve(dirname(fromFile), specifier)
+  const candidates = [
+    base,
+    ...sourceExtensions.map((extension) => `${base}${extension}`),
+    ...sourceExtensions.map((extension) => resolve(base, `index${extension}`)),
+  ]
+  return candidates.find((candidate) => {
+    try {
+      return statSync(candidate).isFile()
+    } catch {
+      return false
+    }
+  }) ?? null
+}
+
+function importedSourceFiles(file: string): string[] {
+  const source = readFileSync(file, "utf-8")
+  const imports = source.matchAll(
+    /(?:import|export)\s+(?:type\s+)?(?:[^"'()]*?\s+from\s+)?["']([^"']+)["']/g
+  )
+  return Array.from(imports)
+    .map((match) => resolveSourceImport(file, match[1]!))
+    .filter((path): path is string => path !== null)
+}
+
+const clientEntrypoints = listSourceFiles(resolve(projectRoot, "src")).filter(
+  (file) => /^\s*["']use client["']/.test(readFileSync(file, "utf-8"))
+)
+const visited = new Set<string>()
+const reachablePrivilegedModules = new Set<string>()
+
+function visitClientDependency(file: string): void {
+  if (visited.has(file)) return
+  visited.add(file)
+  if (privilegedAbsolutePaths.has(file)) {
+    reachablePrivilegedModules.add(file)
+    return
+  }
+
+  const source = readFileSync(file, "utf-8")
+  if (/^\s*["']use server["']/.test(source)) return
+  for (const importedFile of importedSourceFiles(file)) {
+    visitClientDependency(importedFile)
+  }
+}
+
+for (const clientEntrypoint of clientEntrypoints) {
+  visitClientDependency(clientEntrypoint)
+}
+assert(
+  reachablePrivilegedModules.size === 0,
+  "AE – Client Component dependency paths cannot reach privileged modules"
+)
+
+const generatedTokens = generateTokens(1000)
+const generatedTokenPattern = new RegExp(
+  `^AOMI-KIT-[${TOKEN_ALPHABET}]{${TOKEN_RANDOM_SUFFIX_LENGTH}}$`
+)
+assert(
+  TOKEN_RANDOM_SUFFIX_LENGTH === 6,
+  "AF – generated token suffix length is six characters"
+)
+assert(
+  TOKEN_ALPHABET.length === 32 && !/[01IO]/.test(TOKEN_ALPHABET),
+  "AF – token alphabet has 32 unambiguous characters"
+)
+assert(
+  generatedTokens.every((token) => generatedTokenPattern.test(token)),
+  "AF – every generated token matches PREFIX plus six-character format"
+)
+assert(
+  generatedTokens.length === 1000 &&
+    new Set(generatedTokens).size === generatedTokens.length,
+  "AG – generated batch contains no collisions"
+)
+assert(
+  isValidTokenFormat("AOMI-KIT-ABC123") &&
+    isValidTokenFormat("LEGACY-ABCD"),
+  "AH – imports and existing legacy token formats remain valid"
+)
+
+const tokenSource = readFileSync(
+  resolve(projectRoot, "src/lib/token.ts"),
+  "utf-8"
+)
+const generateActionSource = readFileSync(
+  resolve(
+    projectRoot,
+    "src/app/(admin)/admin/qr-tokens/generate/generate-actions.ts"
+  ),
+  "utf-8"
+)
+assert(
+  tokenSource.includes('from "nanoid"') && !tokenSource.includes("Math.random"),
+  "AG – generation uses nanoid and never Math.random"
+)
+assert(
+  generateActionSource.includes("prisma.qRToken.findMany") &&
+    generateActionSource.includes("existingSet"),
+  "AG – generation checks database collisions before insert"
+)
+
+const packageJson = JSON.parse(
+  readFileSync(resolve(projectRoot, "package.json"), "utf-8")
+) as { scripts?: Record<string, string> }
+assert(
+  packageJson.scripts?.postinstall === undefined,
+  "AI – Prisma generation remains an explicit deployment step"
 )
 
 // ─── HDR-001/002: Cache-Control: no-store on every mobile API response ────────

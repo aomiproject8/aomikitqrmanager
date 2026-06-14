@@ -40,10 +40,10 @@ In CI/CD you may prefer `prisma migrate deploy` instead of `migrate dev`.
 3. Build settings (defaults are fine):
    - Install: `npm install`
    - Build: `npm run build`
-   - The Prisma client is generated to `src/generated/prisma`. Ensure
-     `prisma generate` runs during install/build — add a `postinstall` script
-     (`"postinstall": "prisma generate"`) if your generated client is not
-     committed.
+   - The Prisma client is generated to `src/generated/prisma`.
+   - This repository intentionally has no Prisma `postinstall` hook. Configure
+     Vercel or CI to run `npm run db:generate` before `npm run build` when the
+     generated client is not already available.
 
 4. Deploy.
 
@@ -64,6 +64,14 @@ In CI/CD you may prefer `prisma migrate deploy` instead of `migrate dev`.
 - Next.js 16 uses `src/proxy.ts` (the renamed middleware). Do not rename it.
 - Server Actions and Route Handlers run on the Node.js runtime (Prisma adapter
   requires it).
+- NextAuth uses JWT sessions with a 12-hour maximum age. Server authorization
+  continues to revalidate the active user against PostgreSQL on every request.
+- Newly generated QR tokens use `PREFIX-XXXXXX`, where the six-character suffix
+  is produced with cryptographically secure nanoid randomness. Imported and
+  previously stored token formats remain accepted.
+- `src/lib/mobile-api.ts`, `src/lib/server/env.ts`,
+  `src/lib/supabase-server.ts`, and
+  `src/lib/server/image-signatures.ts` are enforced server-only boundaries.
 - Rotate `MOBILE_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` before going to
   production; the defaults in `.env` are development placeholders.
 - `next-auth` is pinned to `5.0.0-beta.31` (exact, no caret). Upgrading to

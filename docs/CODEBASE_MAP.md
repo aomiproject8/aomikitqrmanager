@@ -22,14 +22,14 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 | Framework | Next.js 16 App Router | `src/proxy.ts` (not `middleware.ts`) |
 | Runtime | Node.js (default) | Prisma adapter requires it |
 | Language | TypeScript | strict mode |
-| Auth | NextAuth v5 beta.31 (pinned exact) | JWT strategy, Credentials provider |
+| Auth | NextAuth v5 beta.31 (pinned exact) | JWT strategy, Credentials provider, 12-hour max age |
 | ORM | Prisma 7.8 + `@prisma/adapter-pg` | no URL in `schema.prisma` |
 | Database | PostgreSQL (Supabase) | pooler URL for app, direct URL for migrations |
 | Storage | Supabase Storage | bucket `product-images`, server-side upload only |
 | UI | shadcn/ui (Radix Luma preset `b3ST8r2wy`) | semantic tokens, Tailwind CSS |
 | Validation | Zod 4 | used in Server Actions and import |
 | CSV parsing | PapaParse | header + flat modes |
-| Token generation | nanoid | unambiguous 32-char alphabet |
+| Token generation | nanoid | six secure random characters from an unambiguous 32-char alphabet |
 | Icons | Lucide React | |
 
 ---
@@ -96,7 +96,8 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   │   ├── prisma.ts          # PrismaClient singleton (PrismaPg adapter)
 │   │   ├── auth-helpers.ts    # requireAuth(), requireRole(), requireAnyRole()
 │   │   ├── supabase-server.ts # getSupabaseAdmin(), productImagePublicUrl() — server-only, "server-only" sentinel
-│   │   ├── mobile-api.ts      # checkMobileApiKey() — timing-safe comparison
+│   │   ├── mobile-api.ts      # server-only checkMobileApiKey() — timing-safe comparison
+│   │   ├── image-signature-utils.ts # pure magic-byte parser for server wrapper + tests
 │   │   ├── token.ts           # generateToken(), normalizeToken(), isValidTokenFormat()
 │   │   ├── audit.ts           # writeAuditLog() — accepts optional tx for use inside transactions
 │   │   ├── slug.ts            # toSlug()
@@ -104,8 +105,8 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 │   │   └── server/
 │   │       ├── import-qr-tokens.ts  # processQRTokenImport() service
 │   │       ├── current-user.ts      # getCurrentUser() — DB-backed, React cache()
-│   │       ├── env.ts               # validateEnv(), requireEnv()
-│   │       └── image-signatures.ts  # detectMime(), isAllowedImageMime()
+│   │       ├── env.ts               # server-only validateEnv(), requireEnv()
+│   │       └── image-signatures.ts  # server-only upload-validation wrapper
 │   └── generated/prisma/      # generated Prisma client — DO NOT EDIT
 ├── docs/
 │   ├── CODEBASE_MAP.md        # this file
@@ -181,6 +182,9 @@ Request arrives
 - They call `getCurrentUser()` (`src/lib/server/current-user.ts`) which re-queries the DB on every request so deactivated users are rejected immediately — not just at next login.
 - `checkMobileApiKey()` lives in `src/lib/mobile-api.ts` and uses `crypto.timingSafeEqual`.
 - Session data includes `{ id, email, name, role }`. Role is encoded in the JWT.
+- JWT sessions have an explicit maximum age of 12 hours (`43,200` seconds).
+- `getCurrentUser()` still queries PostgreSQL on protected requests, so user
+  deletion or deactivation revokes access before JWT expiry.
 - **Admin** Server Actions call `requireRole("ADMIN")` as their first statement.
 - **Seller** Server Actions call `requireAnyRole("SELLER", "ADMIN")` — both roles may use the assignment flow.
 
@@ -240,6 +244,12 @@ generate / import
 All status transitions use `updateMany({ where: { id, status: <expected> } })` and check `count === 0` to reject races. See `docs/QR_TOKEN_LIFECYCLE.md` for full table.
 
 Voiding a token also syncs the linked `Package.status` to `VOIDED` in the same transaction.
+
+Generated token values use `PREFIX-XXXXXX`. The suffix is six characters from
+the 32-character `23456789ABCDEFGHJKLMNPQRSTUVWXYZ` alphabet and is generated
+by nanoid using cryptographically secure randomness. Generation checks both
+in-memory batch uniqueness and existing database values. CSV imports continue
+to accept the existing general token format and do not rewrite stored tokens.
 
 ---
 
@@ -364,6 +374,20 @@ Storage client: `src/lib/supabase-server.ts` — `getSupabaseAdmin()`. Guarded b
 - Exports `getSupabaseAdmin()` and `productImagePublicUrl(path)`.
 
 The `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security. It must never appear in `NEXT_PUBLIC_*` or client-component imports.
+
+## Server-only module boundaries
+
+The following privileged entry points import the real `server-only` sentinel:
+
+- `src/lib/mobile-api.ts` — reads `MOBILE_API_KEY` and authenticates mobile API requests.
+- `src/lib/server/env.ts` — reads and validates server environment variables.
+- `src/lib/supabase-server.ts` — reads the Supabase service-role key.
+- `src/lib/server/image-signatures.ts` — server upload-validation entry point.
+
+Image magic-byte parsing itself is dependency-free in
+`src/lib/image-signature-utils.ts` so standalone tests can exercise it without
+weakening the server-only wrapper. Client dependency checks stop at `"use server"`
+action modules and verify that no Client Component reaches a privileged entry point.
 
 ---
 
@@ -578,6 +602,7 @@ Reading these files gives ~80% of the system's behavior:
 | Boundary | Rule |
 |---|---|
 | Client/Server | `getSupabaseAdmin()` never imported in client components — `"server-only"` sentinel enforces this |
+| Client/Server | Mobile API authentication, server env access, and server image validation also use `"server-only"` sentinels |
 | Client/Server | `requireRole()` / `requireAuth()` / `requireAnyRole()` only in Server Actions and Route Handlers |
 | Client/Server | `getCurrentUser()` is server-only (reads DB + session) |
 | API/Mobile | All `/api/qr/*` routes gated by `checkMobileApiKey()` before any logic |
@@ -598,6 +623,10 @@ Reading these files gives ~80% of the system's behavior:
 | `graphify-out/graph.json` | `graphify update .` or `/graphify` command |
 | `graphify-out/graph.html` | `graphify update .` or `/graphify` command |
 | `graphify-out/GRAPH_REPORT.md` | `graphify update .` or `/graphify` command |
+
+Prisma generation is intentionally explicit. There is no `postinstall` script;
+Vercel or CI must run `npm run db:generate` before the production build when
+generated output is not already present.
 
 ---
 

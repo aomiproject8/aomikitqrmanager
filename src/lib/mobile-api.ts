@@ -1,5 +1,5 @@
-// server-only: this module reads MOBILE_API_KEY and must never be imported
-// from a Client Component or the browser bundle.
+import "server-only"
+
 import crypto from "crypto"
 import { NextResponse, type NextRequest } from "next/server"
 

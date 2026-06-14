@@ -14,6 +14,11 @@ on the server → `503`. Key comparison is timing-safe (`crypto.timingSafeEqual`
 
 All responses include `Cache-Control: no-store`.
 
+Generated AOMI tokens use `PREFIX-XXXXXX`, with a six-character
+cryptographically secure suffix from an unambiguous uppercase alphabet.
+Existing and CSV-imported token values remain valid even when they use another
+previously accepted prefix or length.
+
 ---
 
 ## GET `/api/qr/{token}`

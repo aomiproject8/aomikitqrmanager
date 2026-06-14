@@ -30,7 +30,7 @@ import crypto from "crypto"
 import {
   detectMime,
   isAllowedImageMime,
-} from "../src/lib/server/image-signatures"
+} from "../src/lib/image-signature-utils"
 
 const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`.toUpperCase()
 let exitCode = 0
