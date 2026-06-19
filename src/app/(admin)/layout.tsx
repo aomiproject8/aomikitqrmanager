@@ -13,7 +13,7 @@ export default async function AdminLayout({
   const session = await requireRole("ADMIN")
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[17rem_minmax(0,1fr)]">
+    <div className="min-h-screen md:grid md:grid-cols-[13.25rem_minmax(0,1fr)]">
       <AdminMobileNav email={session.user.email ?? ""} />
 
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground md:flex">

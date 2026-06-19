@@ -12,7 +12,7 @@ export default async function AssignPage() {
   const diagnoses = await prisma.diagnosis.findMany({
     where: { active: true },
     orderBy: { name: "asc" },
-    select: { id: true, name: true },
+    select: { id: true, name: true, slug: true },
   })
 
   return (

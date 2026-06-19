@@ -14,6 +14,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
+import type { ComboboxOption } from "@/lib/combobox-filter"
+import { QrScannerDialog } from "./qr-scanner-dialog"
+import { parseQrPayload, type QrParseFailure } from "@/lib/qr-payload"
 import {
   validateToken,
   getRoutinesForDiagnosis,
@@ -26,9 +30,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Check, ChevronRight, ScanLine } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 
-type Diagnosis = { id: string; name: string }
+type Diagnosis = { id: string; name: string; slug: string }
 
 const STEPS = ["Token", "Diagnosis", "Routine", "Review", "Confirm"]
+
+function messageForParseFailure(reason: QrParseFailure): string {
+  switch (reason) {
+    case "empty":
+      return "Enter or scan a token"
+    case "too_long":
+      return "That code is too long to be an AOMI token"
+    case "invalid_url":
+      return "That QR code isn't a valid AOMI code"
+    case "external":
+      return "That QR code isn't an AOMI Kit code"
+    case "no_token":
+      return "No token found in that code"
+    case "invalid_token":
+      return "That doesn't look like a valid token"
+  }
+}
 
 export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
   const router = useRouter()
@@ -53,10 +74,24 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
   const [preview, setPreview] = useState<RoutinePreview | null>(null)
   const [selections, setSelections] = useState<Record<string, string>>({})
 
-  function handleValidateToken() {
+  // Manual typing, USB keyboard-wedge scanners, and the camera scanner all flow
+  // through this single path: parse the raw payload (token or AOMI URL) then run
+  // the existing server validation.
+  function handleValidateToken(explicit?: string) {
+    if (pending) return // prevent duplicate simultaneous submissions
+    const raw = explicit ?? tokenInput
     setTokenError(null)
+
+    const parsed = parseQrPayload(raw)
+    if (!parsed.ok) {
+      setTokenError(messageForParseFailure(parsed.reason))
+      setTokenId(null)
+      return
+    }
+    setTokenInput(parsed.token)
+
     startTransition(async () => {
-      const res = await validateToken(tokenInput)
+      const res = await validateToken(parsed.token)
       if (!res.ok) {
         setTokenError(res.error)
         setTokenId(null)
@@ -78,7 +113,7 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
     })
   }
 
-  function handleSelectRoutine(id: string) {
+  function handleLoadPreview(id: string) {
     startTransition(async () => {
       const p = await getRoutinePreview(id)
       if (!p) {
@@ -121,6 +156,28 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
   }
 
   const diagnosisName = diagnoses.find((d) => d.id === diagnosisId)?.name
+
+  const diagnosisOptions: ComboboxOption[] = diagnoses.map((d) => ({
+    value: d.id,
+    label: d.name,
+    keywords: [d.slug],
+  }))
+  const routineOptions: ComboboxOption[] = routines.map((r) => ({
+    value: r.id,
+    label: r.name,
+    keywords: [r.routineTypeName],
+  }))
+  const selectedRoutine = routines.find((r) => r.id === routineId) ?? null
+
+  function handleDiagnosisChange(id: string | null) {
+    setDiagnosisId(id ?? "")
+    // Clear all downstream state so a previous diagnosis cannot leak a stale
+    // routine, preview, product selection, or replacement choice into confirm.
+    setRoutines([])
+    setRoutineId(null)
+    setPreview(null)
+    setSelections({})
+  }
 
   return (
     <div className="space-y-5">
@@ -185,11 +242,21 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
                   {tokenError}
                 </p>
               )}
+              <p className="text-xs text-muted-foreground">
+                USB or Bluetooth scanners type into this field — keep it focused and scan.
+                The scanner&apos;s Enter keystroke submits automatically.
+              </p>
             </div>
-            <Button onClick={handleValidateToken} disabled={pending || !tokenInput}>
-              {pending && <Spinner />}
-              {pending ? "Validating…" : "Validate token"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => handleValidateToken()} disabled={pending || !tokenInput}>
+                {pending && <Spinner />}
+                {pending ? "Validating…" : "Validate token"}
+              </Button>
+              <QrScannerDialog
+                onToken={(t) => handleValidateToken(t)}
+                disabled={pending}
+              />
+            </div>
           </CardContent>
           </>
         )}
@@ -200,30 +267,18 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
             <div><p className="section-label">Step 2</p><h2 className="mt-1 text-xl font-semibold">Choose a diagnosis</h2><p className="mt-1 text-sm text-muted-foreground">Routines will be filtered to this skin profile.</p></div>
             <div className="space-y-2">
               <Label htmlFor="diagnosis">Select diagnosis</Label>
-              <Select
-                value={diagnosisId}
-                onValueChange={(id) => {
-                  setDiagnosisId(id)
-                  // Clear downstream state so stale routine/preview/selections
-                  // from a previous diagnosis selection do not reach confirmAssignment.
-                  setRoutines([])
-                  setRoutineId(null)
-                  setPreview(null)
-                  setSelections({})
-                }}
+              <Combobox
+                id="diagnosis"
+                options={diagnosisOptions}
+                value={diagnosisId || null}
+                onValueChange={handleDiagnosisChange}
+                placeholder="Choose a diagnosis…"
+                searchPlaceholder="Search by name or slug…"
+                emptyMessage="No matching diagnoses."
+                ariaLabel="Select diagnosis"
+                clearable
                 disabled={pending}
-              >
-                <SelectTrigger id="diagnosis" className="w-full">
-                  <SelectValue placeholder="Choose a diagnosis…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {diagnoses.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" onClick={() => setStep(0)} disabled={pending}>
@@ -249,35 +304,58 @@ export default function AssignFlow({ diagnoses }: { diagnoses: Diagnosis[] }) {
                 No active routines for this diagnosis.
               </p>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {routines.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => handleSelectRoutine(r.id)}
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="routine">Select routine</Label>
+                  <Combobox
+                    id="routine"
+                    options={routineOptions}
+                    value={routineId}
+                    onValueChange={(id) => {
+                      setRoutineId(id)
+                      // Routine changed — drop any stale preview/selections.
+                      setPreview(null)
+                      setSelections({})
+                    }}
+                    placeholder="Choose a routine…"
+                    searchPlaceholder="Search by routine or type…"
+                    emptyMessage="No matching routines."
+                    ariaLabel="Select routine"
                     disabled={pending}
-                    className="rounded-3xl border border-border bg-background p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:opacity-50"
-                  >
-                    <div className="font-medium">
-                      {r.name}
-                    </div>
+                  />
+                </div>
+
+                {selectedRoutine && (
+                  <div className="rounded-3xl border border-border bg-muted/20 p-4">
+                    <div className="font-medium">{selectedRoutine.name}</div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <Badge variant="secondary">{r.routineTypeName}</Badge>
-                      <span>{r.stepCount} steps</span>
-                      {r.durationDays && <span>· {r.durationDays} days</span>}
+                      <Badge variant="secondary">{selectedRoutine.routineTypeName}</Badge>
+                      <span>{selectedRoutine.stepCount} steps</span>
+                      {selectedRoutine.durationDays && (
+                        <span>· {selectedRoutine.durationDays} days</span>
+                      )}
                     </div>
-                    {r.description && (
-                      <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {r.description}
+                    {selectedRoutine.description && (
+                      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                        {selectedRoutine.description}
                       </p>
                     )}
-                  </button>
-                ))}
-              </div>
+                  </div>
+                )}
+              </>
             )}
-            <Button variant="ghost" onClick={() => setStep(1)} disabled={pending}>
-              Back
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setStep(1)} disabled={pending}>
+                Back
+              </Button>
+              <Button
+                onClick={() => routineId && handleLoadPreview(routineId)}
+                disabled={pending || !routineId}
+              >
+                {pending && <Spinner />}
+                {pending ? "Loading…" : "Review products"}
+              </Button>
+            </div>
           </CardContent>
         )}
 

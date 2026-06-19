@@ -2,7 +2,9 @@ import { requireRole } from "@/lib/auth-helpers"
 import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Pencil, Ban, CheckCircle, Plus, Eye, Box } from "lucide-react"
+import { Pencil, Ban, CheckCircle, Plus, Eye, Box, Download } from "lucide-react"
+import { ExcelImportDialog } from "@/components/admin/excel-import-dialog"
+import { previewProductsExcel, commitProductsExcel } from "./import-actions"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   AlertDialog,
@@ -23,28 +25,46 @@ import ProductForm from "./_components/product-form"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
+import type { Prisma } from "@/generated/prisma/client"
+import { DataPagination } from "@/components/ui/data-pagination"
+import { resolvePagination } from "@/lib/pagination"
 
 export const metadata = { title: "Products — AOMI Kit Admin" }
 
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; new?: string; edit?: string }>
+  searchParams: Promise<{ q?: string; new?: string; edit?: string; page?: string; pageSize?: string }>
 }) {
   await requireRole("ADMIN")
-  const { q, new: showNew, edit } = await searchParams
+  const { q, new: showNew, edit, page: pageParam, pageSize: pageSizeParam } = await searchParams
+
+  const where: Prisma.ProductWhereInput = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { sku: { contains: q, mode: "insensitive" } },
+          { category: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {}
+
+  const [totalCount, editItem] = await Promise.all([
+    prisma.product.count({ where }),
+    edit ? prisma.product.findUnique({ where: { id: edit } }) : null,
+  ])
+
+  const { page, pageSize, totalPages, skip, take, from, to } = resolvePagination({
+    page: pageParam,
+    pageSize: pageSizeParam,
+    totalCount,
+  })
 
   const products = await prisma.product.findMany({
-    where: q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { sku: { contains: q, mode: "insensitive" } },
-            { category: { contains: q, mode: "insensitive" } },
-          ],
-        }
-      : undefined,
-    orderBy: [{ stepType: "asc" }, { name: "asc" }],
+    where,
+    orderBy: [{ stepType: "asc" }, { name: "asc" }, { id: "asc" }],
+    skip,
+    take,
     include: {
       images: {
         orderBy: { sortOrder: "asc" },
@@ -53,10 +73,6 @@ export default async function ProductsPage({
       },
     },
   })
-
-  const editItem = edit
-    ? await prisma.product.findUnique({ where: { id: edit } })
-    : null
 
   const isSheetOpen = !!edit || !!showNew
   const closeUrl = q ? `/admin/products?q=${q}` : "/admin/products"
@@ -68,21 +84,35 @@ export default async function ProductsPage({
         title="Products"
         description={
           <span>
-            {products.length} product{products.length !== 1 ? "s" : ""}
+            {totalCount} product{totalCount !== 1 ? "s" : ""}
             {q ? ` matching "${q}"` : ""}
           </span>
         }
         action={
-          <Button asChild>
-            <Link href={`/admin/products?new=true${q ? `&q=${q}` : ""}`}>
-              <Plus className="mr-2 size-4" /> New product
-            </Link>
-          </Button>
+          <>
+            <ExcelImportDialog
+              entityLabel="Products"
+              templateHref="/api/admin/templates/products"
+              previewAction={previewProductsExcel}
+              commitAction={commitProductsExcel}
+            />
+            <Button variant="outline" asChild>
+              <Link href="/api/admin/templates/products" prefetch={false}>
+                <Download className="mr-2 size-4" /> Download Products Template
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/admin/products?new=true${q ? `&q=${q}` : ""}`}>
+                <Plus className="mr-2 size-4" /> New product
+              </Link>
+            </Button>
+          </>
         }
       />
 
       {/* Search */}
       <form method="GET" className="filter-bar">
+        <input type="hidden" name="pageSize" value={pageSize} />
         <Input
           name="q"
           defaultValue={q ?? ""}
@@ -100,7 +130,7 @@ export default async function ProductsPage({
       </form>
 
       {/* Table / Empty state */}
-      {products.length === 0 ? (
+      {totalCount === 0 ? (
         q ? (
           <EmptyState
             icon={Box}
@@ -265,6 +295,17 @@ export default async function ProductsPage({
             </table>
           </div>
         </div>
+      )}
+
+      {totalCount > 0 && (
+        <DataPagination
+          page={page}
+          pageSize={pageSize}
+          totalPages={totalPages}
+          from={from}
+          to={to}
+          totalCount={totalCount}
+        />
       )}
 
       <AdminFormSheet

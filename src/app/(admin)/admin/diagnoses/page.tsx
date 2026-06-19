@@ -2,7 +2,9 @@ import { requireRole } from "@/lib/auth-helpers"
 import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Pencil, Ban, CheckCircle, Plus, Activity } from "lucide-react"
+import { Pencil, Ban, CheckCircle, Plus, Activity, Download } from "lucide-react"
+import { ExcelImportDialog } from "@/components/admin/excel-import-dialog"
+import { previewDiagnosesExcel, commitDiagnosesExcel } from "./import-actions"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   AlertDialog,
@@ -26,32 +28,46 @@ import {
 import DiagnosisForm from "./_components/diagnosis-form"
 import { Input } from "@/components/ui/input"
 import { StatusBadge } from "@/components/ui/status-badge"
+import type { Prisma } from "@/generated/prisma/client"
+import { DataPagination } from "@/components/ui/data-pagination"
+import { resolvePagination } from "@/lib/pagination"
 
 export const metadata = { title: "Diagnoses — AOMI Kit Admin" }
 
 export default async function DiagnosesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; edit?: string; new?: string }>
+  searchParams: Promise<{ q?: string; edit?: string; new?: string; page?: string; pageSize?: string }>
 }) {
   await requireRole("ADMIN")
-  const { q, edit, new: showNew } = await searchParams
+  const { q, edit, new: showNew, page: pageParam, pageSize: pageSizeParam } = await searchParams
 
-  const diagnoses = await prisma.diagnosis.findMany({
-    where: q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { slug: { contains: q, mode: "insensitive" } },
-          ],
-        }
-      : undefined,
-    orderBy: { name: "asc" },
+  const where: Prisma.DiagnosisWhereInput = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { slug: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {}
+
+  const [totalCount, editItem] = await Promise.all([
+    prisma.diagnosis.count({ where }),
+    edit ? prisma.diagnosis.findUnique({ where: { id: edit } }) : null,
+  ])
+
+  const { page, pageSize, totalPages, skip, take, from, to } = resolvePagination({
+    page: pageParam,
+    pageSize: pageSizeParam,
+    totalCount,
   })
 
-  const editItem = edit
-    ? await prisma.diagnosis.findUnique({ where: { id: edit } })
-    : null
+  const diagnoses = await prisma.diagnosis.findMany({
+    where,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    skip,
+    take,
+  })
 
   const updateAction = editItem
     ? updateDiagnosis.bind(null, editItem.id)
@@ -66,21 +82,35 @@ export default async function DiagnosesPage({
         title="Diagnoses"
         description={
           <span>
-            {diagnoses.length} skin diagnosis profile{diagnoses.length !== 1 ? "s" : ""}
+            {totalCount} skin diagnosis profile{totalCount !== 1 ? "s" : ""}
             {q ? ` matching "${q}"` : ""}
           </span>
         }
         action={
-          <Button asChild>
-            <Link href={`/admin/diagnoses?new=true${q ? `&q=${q}` : ""}`}>
-              <Plus className="mr-2 size-4" /> New diagnosis
-            </Link>
-          </Button>
+          <>
+            <ExcelImportDialog
+              entityLabel="Diagnoses"
+              templateHref="/api/admin/templates/diagnoses"
+              previewAction={previewDiagnosesExcel}
+              commitAction={commitDiagnosesExcel}
+            />
+            <Button variant="outline" asChild>
+              <Link href="/api/admin/templates/diagnoses" prefetch={false}>
+                <Download className="mr-2 size-4" /> Download Diagnoses Template
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/admin/diagnoses?new=true${q ? `&q=${q}` : ""}`}>
+                <Plus className="mr-2 size-4" /> New diagnosis
+              </Link>
+            </Button>
+          </>
         }
       />
 
       {/* Search */}
       <form method="GET" className="filter-bar">
+        <input type="hidden" name="pageSize" value={pageSize} />
         <Input
           name="q"
           defaultValue={q ?? ""}
@@ -98,7 +128,7 @@ export default async function DiagnosesPage({
       </form>
 
       {/* Table / Empty state */}
-      {diagnoses.length === 0 ? (
+      {totalCount === 0 ? (
         q ? (
           <EmptyState
             icon={Activity}
@@ -228,6 +258,17 @@ export default async function DiagnosesPage({
             </table>
           </div>
         </div>
+      )}
+
+      {totalCount > 0 && (
+        <DataPagination
+          page={page}
+          pageSize={pageSize}
+          totalPages={totalPages}
+          from={from}
+          to={to}
+          totalCount={totalCount}
+        />
       )}
 
       <AdminFormSheet

@@ -45,6 +45,11 @@ npm run dev
 npm run lint
 npm run build
 npm run test:qr-import
+npm run test:pagination
+npm run test:combobox
+npm run test:qr-payload
+npm run test:keepalive
+npm run test:excel-import
 npm run db:generate
 npm run db:migrate
 npm run db:seed
@@ -176,6 +181,56 @@ Run `npm run test:qr-import` after changing import, token, batch, or lifecycle c
 - Secondary status cards are global and labeled accordingly.
 - Do not load the complete QR-token table into the browser.
 
+## Catalog pagination
+
+- Products, diagnoses, routine types, and routines use server-side pagination.
+- Allowed page sizes are 25, 50, and 100; default 25.
+- Use `resolvePagination()` (`src/lib/pagination.ts`) to clamp page/pageSize and
+  derive `skip`/`take`; never fetch all rows and slice in memory.
+- Use the shared `DataPagination` component; it preserves search/filter params
+  and resets to page 1 on a page-size change.
+- Every catalog `orderBy` includes an `id` tiebreaker for deterministic ordering.
+- Run `npm run test:pagination` after changing pagination logic or page wiring.
+
+## Excel imports
+
+- Each admin catalog page has its own template and its own import; never a
+  combined workbook. See `docs/EXCEL_IMPORTS.md`.
+- Reading/generating XLSX uses `exceljs`. Do not reintroduce SheetJS (`xlsx`).
+- The flow is two-phase: dry-run preview (zero writes) then confirmed commit.
+- Commit re-parses and re-validates the file, writes only valid+new rows in one
+  transaction, and emits exactly one audit entry. Failures roll back fully.
+- Status labels are `CREATE` / `SKIP_EXISTING` / `ERROR`;
+  `totalRows = CREATE + SKIP_EXISTING + ERROR`.
+- Enforce the 10 MB / 5000-row limits, reject formulas, and escape generated
+  cells against formula injection (`src/lib/spreadsheet-safe.ts`).
+- Existing identifiers (SKU / slug / routine name) are skipped, never overwritten.
+- Run `npm run test:excel-import` after changing any importer or template.
+
+## Seller assignment UX
+
+- Diagnosis and routine selection use the searchable `Combobox` (Popover +
+  filtered list; no extra dependency). Client filtering is UX only — the server
+  still authorizes the final selection.
+- Changing the diagnosis clears routine, preview, product selections, and
+  validation state.
+- Token entry accepts manual typing, USB keyboard-wedge scanners (focused
+  input + Enter), and camera scanning (native `BarcodeDetector`). All three feed
+  `parseQrPayload` then the existing `validateToken` path.
+- The camera scanner must stop every media track on success, close, and unmount,
+  and must keep manual entry available as a fallback.
+- Run `npm run test:combobox` and `npm run test:qr-payload` after changes here.
+
+## Keep-alive endpoint
+
+- `POST /api/internal/keepalive` runs a read-only `SELECT 1`; never writes.
+- Auth via `x-keepalive-key` against `SUPABASE_KEEPALIVE_KEY` (timing-safe,
+  length-checked). Must differ from `MOBILE_API_KEY`. Never log the key.
+- 200 ok / 401 bad key / 503 unconfigured-or-DB-failure (generic, no internals).
+- GitHub Actions calls the endpoint; database credentials never go to GitHub.
+- Best effort only — not a substitute for Supabase Pro.
+- Run `npm run test:keepalive` after changing the endpoint or workflow.
+
 ## Replacement rules
 
 - `ProductReplacement.stepType` must equal both `source.stepType` and `replacement.stepType`.
@@ -231,8 +286,8 @@ Run `npm run test:qr-import` after changing import, token, batch, or lifecycle c
 - Keep server-only secrets and helpers out of Client Components.
 - Privileged entry points that read server secrets or enforce server-side
   validation must import `"server-only"`. Current boundaries include
-  `mobile-api.ts`, `server/env.ts`, `supabase-server.ts`, and
-  `server/image-signatures.ts`.
+  `mobile-api.ts`, `server/env.ts`, `supabase-server.ts`,
+  `server/image-signatures.ts`, and `keepalive.ts`.
 - When standalone tests need pure logic from a server-only module, extract a
   dependency-free helper and keep the privileged wrapper server-only.
 - Do not duplicate domain logic in pages, actions, and tests.

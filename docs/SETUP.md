@@ -32,6 +32,9 @@ SUPABASE_SERVICE_ROLE_KEY="<service role key — server only>"
 
 # Mobile REST API
 MOBILE_API_KEY="<long random string>"
+
+# Supabase keep-alive (GitHub Actions heartbeat) — MUST differ from MOBILE_API_KEY
+SUPABASE_KEEPALIVE_KEY="<long random string>"
 ```
 
 | Variable | Used by | Notes |
@@ -44,6 +47,7 @@ MOBILE_API_KEY="<long random string>"
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Client | Safe to expose. |
 | `SUPABASE_SERVICE_ROLE_KEY` | `src/lib/supabase-server.ts` only | **Never** import into a client component. |
 | `MOBILE_API_KEY` | `/api/qr/*` | Sent by the mobile app as `x-api-key`. |
+| `SUPABASE_KEEPALIVE_KEY` | `POST /api/internal/keepalive` | Sent by the keep-alive workflow as `x-keepalive-key`. Must differ from `MOBILE_API_KEY`. |
 
 ## Prisma
 
@@ -99,11 +103,34 @@ npm run dev
 
 Visit http://localhost:3000 and sign in with the seeded admin credentials.
 
+## Keep-alive endpoint (local test)
+
+The free Supabase tier pauses inactive projects. `POST /api/internal/keepalive`
+runs a harmless `SELECT 1` so a scheduled GitHub Action can keep the database
+warm. Test it locally:
+
+```bash
+# with SUPABASE_KEEPALIVE_KEY set in .env and the dev server running
+curl -i -X POST http://localhost:3000/api/internal/keepalive \
+  -H "x-keepalive-key: $SUPABASE_KEEPALIVE_KEY"
+# → 200 { "ok": true }   (401 wrong/missing key, 503 if unconfigured)
+```
+
+This is **best effort only** — it is not a substitute for Supabase Pro. See
+`docs/DEPLOYMENT.md` for the GitHub Actions setup and recovery procedure.
+
 ## Test scripts
 
 ```bash
-npm run test:qr-import   # QR import invariants (integration, requires DB)
-npm run test:correctness # Auth + data invariants from Phase 1 (integration, requires DB)
-npm run test:phase2      # API hardening + upload unit tests (no DB)
-npm run test:export      # CSV export streaming unit tests (no DB)
+npm run test:qr-import        # QR import invariants (integration, requires DB)
+npm run test:correctness      # Auth + data invariants from Phase 1 (integration, requires DB)
+npm run test:phase2           # API hardening + upload unit tests (no DB)
+npm run test:export           # CSV export streaming unit tests (no DB)
+npm run test:replacement-rules
+npm run test:images
+npm run test:pagination       # catalog pagination logic + page wiring (no DB)
+npm run test:combobox         # seller combobox filtering + wiring (no DB)
+npm run test:qr-payload       # QR scan/manual payload parser (no DB)
+npm run test:keepalive        # keep-alive endpoint + workflow (DB optional)
+npm run test:excel-import     # Excel importers + templates (DB optional)
 ```

@@ -1,0 +1,75 @@
+name: Supabase Keep-Alive
+
+# Best-effort heartbeat that pings the application's protected keep-alive
+# endpoint so the free-tier Supabase project is not paused for inactivity.
+# This is NOT a substitute for Supabase Pro. See docs/DEPLOYMENT.md.
+#
+# GitHub never receives database credentials. It only calls the app endpoint
+# with a dedicated header secret (AOMI_KEEPALIVE_KEY).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Two non-round daily windows for resilience (UTC).
+    - cron: "17 7 * * *"
+    - cron: "43 19 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping keep-alive endpoint
+        env:
+          AOMI_KEEPALIVE_URL: ${{ secrets.AOMI_KEEPALIVE_URL }}
+          AOMI_KEEPALIVE_KEY: ${{ secrets.AOMI_KEEPALIVE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AOMI_KEEPALIVE_URL:-}" ] || [ -z "${AOMI_KEEPALIVE_KEY:-}" ]; then
+            echo "Missing AOMI_KEEPALIVE_URL or AOMI_KEEPALIVE_KEY repository secret." >&2
+            exit 1
+          fi
+
+          attempts=4
+          delay=5
+
+          for i in $(seq 1 "$attempts"); do
+            echo "Keep-alive attempt $i of $attempts..."
+
+            # --fail-with-body: non-2xx exits non-zero but still prints body.
+            # Secret is passed only in the request header, never echoed.
+            if curl \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --request POST \
+              --header "x-keepalive-key: ${AOMI_KEEPALIVE_KEY}" \
+              --output /dev/null \
+              --write-out "HTTP %{http_code}\n" \
+              "${AOMI_KEEPALIVE_URL}"; then
+              echo "Keep-alive succeeded."
+              exit 0
+            fi
+
+            status=$?
+            echo "Attempt $i failed (curl exit $status)." >&2
+
+            if [ "$i" -lt "$attempts" ]; then
+              echo "Retrying in ${delay}s..."
+              sleep "$delay"
+              delay=$((delay * 2))
+            fi
+          done
+
+          echo "All $attempts keep-alive attempts failed." >&2
+          exit 1

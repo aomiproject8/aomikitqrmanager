@@ -19,14 +19,17 @@ mobile REST API that activated kits read from.
 
 | Area              | Routes                                                            |
 | ----------------- | ----------------------------------------------------------------- |
-| Catalog           | `/admin/products`, `/admin/diagnoses`, `/admin/routine-types`     |
+| Catalog           | `/admin/products`, `/admin/diagnoses`, `/admin/routine-types` (server-side paginated) |
+| Excel import      | Page-specific templates + dry-run imports (see `docs/EXCEL_IMPORTS.md`) |
 | Product images    | Upload/reorder/delete on the product edit page (Supabase Storage) |
 | Replacement rules | Managed on the product edit page                                  |
 | Routines          | `/admin/routines`, `/admin/routines/new`, `/admin/routines/[id]`  |
 | QR tokens         | `/admin/qr-tokens`, `…/generate`, `…/import`, `/admin/batches`    |
 | Token CSV export  | `/api/admin/qr-tokens/export`                                     |
-| Seller assignment | `/seller`, `/seller/assign`                                       |
+| Excel templates   | `GET /api/admin/templates/[entity]`                              |
+| Seller assignment | `/seller`, `/seller/assign` (searchable selectors; manual/USB/camera scan) |
 | Mobile API        | `GET /api/qr/[token]`, `POST /api/qr/activate`                    |
+| Keep-alive        | `POST /api/internal/keepalive` (GitHub Actions heartbeat)         |
 
 ## Quick start
 
@@ -58,6 +61,11 @@ Sign in at `/login`. Admins land on `/admin`, sellers on `/seller`.
 - `npm run test:export` — CSV export streaming unit tests
 - `npm run test:replacement-rules`
 - `npm run test:images`
+- `npm run test:pagination` — catalog pagination logic + page wiring
+- `npm run test:combobox` — seller combobox filtering + wiring
+- `npm run test:qr-payload` — QR scan/manual payload parser
+- `npm run test:keepalive` — keep-alive endpoint + workflow (DB optional)
+- `npm run test:excel-import` — Excel importers + templates (DB optional)
 - `npm run audit:replacement-rules`
 
 ## Project notes
@@ -85,5 +93,6 @@ Sign in at `/login`. Admins land on `/admin`, sellers on `/seller`.
 
 - [docs/SETUP.md](docs/SETUP.md) — environment variables and local setup
 - [docs/API.md](docs/API.md) — mobile API reference
+- [docs/EXCEL_IMPORTS.md](docs/EXCEL_IMPORTS.md) — page-specific Excel templates and imports
 - [docs/QR_TOKEN_LIFECYCLE.md](docs/QR_TOKEN_LIFECYCLE.md) — token state machine
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Vercel + Supabase deployment
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Vercel + Supabase deployment (incl. keep-alive)

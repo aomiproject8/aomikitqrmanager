@@ -156,8 +156,10 @@ AOMI Kit QR Manager is a Next.js web application that manages the full lifecycle
 |---|---|---|
 | POST | `/api/auth/[...nextauth]` | NextAuth handler |
 | GET | `/api/admin/qr-tokens/export` | `app/api/admin/qr-tokens/export/route.ts` |
+| GET | `/api/admin/templates/[entity]` | `app/api/admin/templates/[entity]/route.ts` (ADMIN — XLSX template download) |
 | GET | `/api/qr/[token]` | `app/api/qr/[token]/route.ts` |
 | POST | `/api/qr/activate` | `app/api/qr/activate/route.ts` |
+| POST | `/api/internal/keepalive` | `app/api/internal/keepalive/route.ts` (keep-alive heartbeat) |
 
 ---
 
@@ -531,7 +533,47 @@ This is intentional for the current modest dataset. A `pg_trgm` GIN index would 
 
 ## Catalog pagination
 
-Products, diagnoses, routine types, and routines are small catalogs (expected tens to low hundreds of records). They are loaded without server-side pagination. Add pagination if any catalog grows beyond **~500 rows** and page render time becomes perceptible. Use `select` to avoid over-fetching; avoid `include` when only a subset of fields is needed.
+Products, diagnoses, routine types, and routines use **server-side pagination**
+driven by `page`, `pageSize`, and `q` (plus route-specific filters). Shared logic
+lives in `src/lib/pagination.ts` (`resolvePagination`, `resolvePageSize`,
+`getPaginationRange`) and the reusable client footer is
+`src/components/ui/data-pagination.tsx`.
+
+- Default page size 25; allowed 25 / 50 / 100.
+- Each page runs `count` (with the canonical `where`) in parallel with any
+  independent queries, then `findMany` with `skip`/`take`.
+- Page is clamped to `[1, lastPage]`; an excessive page returns the last page.
+- Every `orderBy` ends with an `id` tiebreaker for deterministic ordering.
+- Filters/search reset the page (forms omit `page`, preserve `pageSize`).
+
+## Excel import framework
+
+Page-specific XLSX templates and dry-run imports for products, diagnoses,
+routine types, and routines. See `docs/EXCEL_IMPORTS.md` for the full spec.
+
+- Library: `exceljs` (read + write + data-validation dropdowns). SheetJS (`xlsx`)
+  is intentionally not used.
+- Core/parse/types: `src/lib/server/excel/core.ts`; per-entity importers in the
+  same folder (`products.ts`, `slug-entity.ts`, `diagnoses.ts`,
+  `routine-types.ts`, `routines.ts`); templates in `templates.ts`.
+- Shared formula-injection escape: `src/lib/spreadsheet-safe.ts` (client+server).
+- Page Server Actions: `src/app/(admin)/admin/<entity>/import-actions.ts`.
+- Template download route: `src/app/api/admin/templates/[entity]/route.ts`.
+- UI: `src/components/admin/excel-import-dialog.tsx`.
+- Two-phase: dry-run preview (no writes) → confirmed commit (one transaction,
+  one audit entry). Limits: 10 MB, 5000 rows. Existing identifiers are skipped.
+
+## Seller scanning & searchable selectors
+
+- `src/components/ui/combobox.tsx` + `src/lib/combobox-filter.ts` — searchable
+  Combobox (Popover + filtered list) used for diagnosis/routine selection.
+- `src/lib/qr-payload.ts` — pure parser accepting a raw token or an AOMI
+  `/api/qr/<token>` URL; rejects arbitrary external URLs.
+- `src/app/(seller)/seller/assign/_components/qr-scanner-dialog.tsx` — camera
+  scanning via the native `BarcodeDetector` API (no new dependency); stops all
+  media tracks on success/close/unmount.
+- Manual, USB keyboard-wedge, and camera input all funnel through
+  `parseQrPayload` → `validateToken`.
 
 ---
 
@@ -546,6 +588,11 @@ Products, diagnoses, routine types, and routines are small catalogs (expected te
 | Replacement rules | `npm run test:replacement-rules` | 14 assertions, cases A–N: stepType invariants, blocking, audit |
 | Image management | `npm run test:images` | 14 assertions: magic bytes, MIME gating, sort order, primary image, N+1 avoidance |
 | Replacement rule audit | `npm run audit:replacement-rules` | Dry-run — detects pre-existing DB violations, no mutations |
+| Catalog pagination | `npm run test:pagination` | `resolvePagination`/`resolvePageSize`/range logic + page wiring |
+| Seller comboboxes | `npm run test:combobox` | `filterComboboxOptions` + assign-flow wiring |
+| QR payload parser | `npm run test:qr-payload` | raw token / AOMI URL / external / malformed parsing + scanner wiring |
+| Keep-alive | `npm run test:keepalive` | endpoint auth/no-store/read-only + workflow YAML (DB optional) |
+| Excel imports | `npm run test:excel-import` | parse/preview/commit, templates, relationships, atomic audit (DB optional) |
 
 ---
 

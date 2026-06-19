@@ -2,7 +2,9 @@ import { requireRole } from "@/lib/auth-helpers"
 import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Pencil, Ban, CheckCircle, Plus, Eye, ClipboardList } from "lucide-react"
+import { Pencil, Ban, CheckCircle, Plus, Eye, ClipboardList, Download } from "lucide-react"
+import { ExcelImportDialog } from "@/components/admin/excel-import-dialog"
+import { previewRoutinesExcel, commitRoutinesExcel } from "./import-actions"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   AlertDialog,
@@ -23,16 +25,18 @@ import RoutineForm from "./_components/routine-form"
 import type { Prisma, StepType } from "@/generated/prisma/client"
 import { Input } from "@/components/ui/input"
 import { StatusBadge } from "@/components/ui/status-badge"
+import { DataPagination } from "@/components/ui/data-pagination"
+import { resolvePagination } from "@/lib/pagination"
 
 export const metadata = { title: "Routines — AOMI Kit Admin" }
 
 export default async function RoutinesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; type?: string; status?: string; new?: string; edit?: string }>
+  searchParams: Promise<{ q?: string; type?: string; status?: string; new?: string; edit?: string; page?: string; pageSize?: string }>
 }) {
   await requireRole("ADMIN")
-  const { q, type, status, new: showNew, edit } = await searchParams
+  const { q, type, status, new: showNew, edit, page: pageParam, pageSize: pageSizeParam } = await searchParams
 
   const where: Prisma.RoutineTemplateWhereInput = {}
   if (q) {
@@ -45,21 +49,31 @@ export default async function RoutinesPage({
   if (status === "active") where.active = true
   if (status === "inactive") where.active = false
 
-  const [routines, routineTypes] = await Promise.all([
-    prisma.routineTemplate.findMany({
-      where,
-      orderBy: { name: "asc" },
-      include: {
-        routineType: { select: { name: true } },
-        _count: { select: { steps: true, diagnoses: true } },
-      },
-    }),
+  const [totalCount, routineTypes] = await Promise.all([
+    prisma.routineTemplate.count({ where }),
     prisma.routineType.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
   ])
+
+  const { page, pageSize, totalPages, skip, take, from, to } = resolvePagination({
+    page: pageParam,
+    pageSize: pageSizeParam,
+    totalCount,
+  })
+
+  const routines = await prisma.routineTemplate.findMany({
+    where,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    skip,
+    take,
+    include: {
+      routineType: { select: { name: true } },
+      _count: { select: { steps: true, diagnoses: true } },
+    },
+  })
 
   // Setup sheet data
   let editItem = null
@@ -119,6 +133,8 @@ export default async function RoutinesPage({
   if (q) qs.set("q", q)
   if (type) qs.set("type", type)
   if (status) qs.set("status", status)
+  qs.set("page", String(page))
+  qs.set("pageSize", String(pageSize))
   const closeUrl = `/admin/routines${qs.toString() ? `?${qs.toString()}` : ""}`
   const formAction = editItem ? updateRoutine.bind(null, editItem.id) : createRoutine
 
@@ -128,20 +144,34 @@ export default async function RoutinesPage({
         title="Routines"
         description={
           <span>
-            {routines.length} skin routine template{routines.length !== 1 ? "s" : ""}
+            {totalCount} skin routine template{totalCount !== 1 ? "s" : ""}
           </span>
         }
         action={
-          <Button asChild>
-            <Link href={`/admin/routines?new=true${qs.toString() ? `&${qs.toString()}` : ""}`}>
-              <Plus className="mr-2 size-4" /> New routine
-            </Link>
-          </Button>
+          <>
+            <ExcelImportDialog
+              entityLabel="Routines"
+              templateHref="/api/admin/templates/routines"
+              previewAction={previewRoutinesExcel}
+              commitAction={commitRoutinesExcel}
+            />
+            <Button variant="outline" asChild>
+              <Link href="/api/admin/templates/routines" prefetch={false}>
+                <Download className="mr-2 size-4" /> Download Routines Template
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/admin/routines?new=true${qs.toString() ? `&${qs.toString()}` : ""}`}>
+                <Plus className="mr-2 size-4" /> New routine
+              </Link>
+            </Button>
+          </>
         }
       />
 
       {/* Filters */}
       <form method="GET" className="filter-bar">
+        <input type="hidden" name="pageSize" value={pageSize} />
         <Input
           name="q"
           defaultValue={q ?? ""}
@@ -180,7 +210,7 @@ export default async function RoutinesPage({
       </form>
 
       {/* Table / Empty state */}
-      {routines.length === 0 ? (
+      {totalCount === 0 ? (
         (q || type || status) ? (
           <EmptyState
             icon={ClipboardList}
@@ -332,6 +362,17 @@ export default async function RoutinesPage({
             </table>
           </div>
         </div>
+      )}
+
+      {totalCount > 0 && (
+        <DataPagination
+          page={page}
+          pageSize={pageSize}
+          totalPages={totalPages}
+          from={from}
+          to={to}
+          totalCount={totalCount}
+        />
       )}
 
       <AdminFormSheet

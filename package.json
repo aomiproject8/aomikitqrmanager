@@ -17,6 +17,11 @@
     "test:export": "tsx scripts/test-export-streaming.ts",
     "test:replacement-rules": "tsx scripts/test-replacement-rules.ts",
     "test:images": "tsx scripts/test-images.ts",
+    "test:keepalive": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-keepalive.ts",
+    "test:pagination": "tsx scripts/test-pagination.ts",
+    "test:combobox": "tsx scripts/test-combobox.ts",
+    "test:qr-payload": "tsx scripts/test-qr-payload.ts",
+    "test:excel-import": "tsx scripts/test-excel-import.ts",
     "audit:replacement-rules": "tsx scripts/audit-replacement-rules.ts"
   },
   "prisma": {
@@ -29,6 +34,7 @@
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.18.0",
     "nanoid": "^5.1.11",
     "next": "16.2.9",
